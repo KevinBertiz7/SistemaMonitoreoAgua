@@ -315,7 +315,6 @@ export default function WaterMonitor() {
     }
   }
 
-  const sensorDisabled = !!datasetInfo;
   const statusColor = result ? result.classification.color : "#445566";
   const alertCount = history.filter(h => h.classification.label > 0).length;
   const phHistory = history.map(h => h.ph);
@@ -406,11 +405,10 @@ export default function WaterMonitor() {
           </div>
 
           {/* Sliders */}
-          <div className="card" style={{ padding: 16, opacity: sensorDisabled ? 0.45 : 1, pointerEvents: sensorDisabled ? "none" : "auto", transition: "opacity 0.3s" }}>
-            <div style={{ fontSize: 9, color: sensorDisabled ? "#2d5a3a" : "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: sensorDisabled ? 6 : 14 }}>
-              {sensorDisabled ? "⊘ DESACTIVADO — MODO DATASET" : "Parámetros del Sensor"}
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 14 }}>
+              Parámetros del Sensor
             </div>
-            {sensorDisabled && <div style={{ fontSize: 10, color: "#3a7a4a", background: "#0a1f0d", borderRadius: 6, padding: "6px 10px", marginBottom: 12, border: "1px solid #2d7a2d30" }}>Los parámetros manuales están desactivados mientras hay un dataset cargado. Quita el dataset para ingresar valores.</div>}
             {[
               { key: "ph", label: "pH", value: ph, set: setPh, min: 0, max: 14, step: 0.1, nMin: 6.5, nMax: 8.5, color: "#00b4d8", unit: "" },
               { key: "turbidity", label: "Turbidez", value: turbidity, set: setTurbidity, min: 0, max: 30, step: 0.1, nMin: 0, nMax: 4, color: "#f5c518", unit: " NTU" },
@@ -451,17 +449,13 @@ export default function WaterMonitor() {
           {/* ── Botones de acción ── */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
 
-            {/* ANALIZAR → LIMPIAR cuando hay dataset */}
+            {/* ANALIZAR — siempre activo */}
             <button
-              onClick={datasetInfo ? () => setDatasetInfo(null) : handleAnalizar}
+              onClick={handleAnalizar}
               disabled={loading}
               style={{
-                background: datasetInfo
-                  ? "linear-gradient(135deg,#3a1a1a,#5c1a1a)"
-                  : loading ? "#0d1b2a"
-                  : "linear-gradient(135deg,#0077b6,#00b4d8)",
-                border: datasetInfo ? "1px solid #ff4c4c50" : "none",
-                color: datasetInfo ? "#ff8888" : "white",
+                background: loading ? "#0d1b2a" : "linear-gradient(135deg,#0077b6,#00b4d8)",
+                border: "none", color: "white",
                 borderRadius: 8, padding: 13,
                 fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12,
                 cursor: loading ? "default" : "pointer",
@@ -470,41 +464,36 @@ export default function WaterMonitor() {
               }}>
               {loading
                 ? <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid #334455", borderTopColor: "#00b4d8", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
-                : datasetInfo ? "🗑 LIMPIAR DATASET" : "📡 ANALIZAR"
+                : "📡 ANALIZAR"
               }
             </button>
 
-            {/* SIMULAR — bloqueado con dataset */}
+            {/* SIMULAR — siempre activo */}
             <button
               onClick={handleSimular}
-              disabled={loading || !!datasetInfo}
+              disabled={loading}
               style={{
-                background: datasetInfo ? "#0d1a10" : "linear-gradient(135deg,#1a3a2a,#0d5c3a)",
-                border: "1px solid #00e5a030",
-                color: datasetInfo ? "#2a4a2a" : "#00e5a0",
+                background: "linear-gradient(135deg,#1a3a2a,#0d5c3a)",
+                border: "1px solid #00e5a030", color: "#00e5a0",
                 borderRadius: 8, padding: 13,
                 fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12,
-                cursor: datasetInfo ? "not-allowed" : loading ? "default" : "pointer",
+                cursor: loading ? "default" : "pointer",
                 letterSpacing: "0.06em", transition: "all 0.3s",
-                opacity: datasetInfo ? 0.4 : 1
               }}>
               🎲 SIMULAR
             </button>
           </div>
 
-          {/* MODO AUTOMÁTICO — bloqueado con dataset */}
+          {/* MODO AUTOMÁTICO — siempre activo */}
           <button
-            onClick={() => !datasetInfo && setAutoMode(a => !a)}
-            disabled={!!datasetInfo}
+            onClick={() => setAutoMode(a => !a)}
             style={{
               background: autoMode ? "linear-gradient(135deg,#1a3a2a,#0d5c3a)" : "transparent",
               border: autoMode ? "1px solid #00e5a060" : "1px solid #1e3a5a",
-              color: datasetInfo ? "#2a3a2a" : autoMode ? "#00e5a0" : "#556677",
+              color: autoMode ? "#00e5a0" : "#556677",
               borderRadius: 8, padding: "11px",
               fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12,
-              cursor: datasetInfo ? "not-allowed" : "pointer",
-              letterSpacing: "0.06em", transition: "all 0.3s",
-              opacity: datasetInfo ? 0.35 : 1
+              cursor: "pointer", letterSpacing: "0.06em", transition: "all 0.3s",
             }}>
             {autoMode ? "⏹ DETENER AUTO" : "▶ MODO AUTOMÁTICO (cada 3s)"}
           </button>
@@ -528,30 +517,42 @@ export default function WaterMonitor() {
           {/* CARGAR DATASET CSV */}
           <input ref={fileInputRef} type="file" accept=".csv" style={{ display: "none" }} onChange={handleDataset} />
           <button
-            onClick={() => !datasetInfo && fileInputRef.current.click()}
-            disabled={datasetLoading || !!datasetInfo}
-            onMouseEnter={e => { if (!datasetInfo) e.currentTarget.style.boxShadow = "0 0 20px #0d6a3a35"; }}
+            onClick={() => fileInputRef.current.click()}
+            disabled={datasetLoading}
+            onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 20px #0d6a3a35"}
             onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
             style={{
-              background: datasetInfo
-                ? "linear-gradient(135deg,#0d2a1a,#1a4d2a)"
-                : "linear-gradient(135deg,#0d1f0d,#1a3a1a)",
-              border: datasetInfo ? "1px solid #4CAF5070" : "1px solid #2d7a2d50",
-              color: datasetInfo ? "#4CAF50" : "#5a9a5a",
+              background: "linear-gradient(135deg,#0d1f0d,#1a3a1a)",
+              border: "1px solid #2d7a2d50", color: "#5a9a5a",
               borderRadius: 8, padding: "13px",
               fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12,
-              cursor: datasetLoading || datasetInfo ? "default" : "pointer",
+              cursor: datasetLoading ? "default" : "pointer",
               letterSpacing: "0.06em", transition: "all 0.2s",
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-              opacity: datasetInfo ? 0.7 : 1
             }}>
             {datasetLoading
               ? <><span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #334", borderTopColor: "#4CAF50", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> PROCESANDO...</>
-              : datasetInfo
-                ? `📂 DATASET ACTIVO (${datasetInfo.muestras} filas)`
-                : "📂 CARGAR DATASET CSV"
+              : "📂 CARGAR DATASET CSV"
             }
           </button>
+
+          {/* LIMPIAR DATASET — solo visible cuando hay dataset */}
+          {datasetInfo && (
+            <button
+              onClick={() => setDatasetInfo(null)}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 20px #ff4c4c25"}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+              style={{
+                background: "linear-gradient(135deg,#2a0a0a,#4a1010)",
+                border: "1px solid #ff4c4c50", color: "#ff8888",
+                borderRadius: 8, padding: "13px",
+                fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12,
+                cursor: "pointer", letterSpacing: "0.06em", transition: "all 0.2s",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              }}>
+              🗑 LIMPIAR DATASET ({datasetInfo.muestras} filas)
+            </button>
+          )}
         </div>
 
         {/* RIGHT */}
@@ -625,102 +626,111 @@ export default function WaterMonitor() {
             </div>
           )}
 
-          {/* History — lecturas manuales o filas del dataset */}
-          {(history.length > 0 || datasetInfo) && (() => {
-            // Si hay dataset, construir filas a partir de sus datos
-            const dsRows = datasetInfo && datasetInfo._rows ? datasetInfo._rows : [];
-            const rows = datasetInfo ? dsRows : [...history].reverse();
-            const isDataset = !!datasetInfo;
-            const title = isDataset
-              ? `📂 Dataset: ${datasetInfo.archivo} — ${datasetInfo.muestras} muestras`
-              : "Historial de Lecturas";
-            const headers = isDataset
-              ? ["#", "pH", "Turbidez", "Temp", "Clase"]
-              : ["Hora", "pH", "Turbidez", "Temp", "Estado", "Confianza"];
+          <style>{`.hist-row:hover { background: #0d2235 !important; cursor: pointer; }`}</style>
 
-            return (
-              <div className="card" style={{ padding: 16, maxHeight: isDataset ? 340 : 260, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, color: isDataset ? "#4CAF50" : "#445566", letterSpacing: "0.15em", textTransform: "uppercase" }}>{title}</div>
-                  <div style={{ fontSize: 9, color: "#334455" }}>↗ clic en fila para detalle</div>
+          {/* ── HISTORIAL DATASET ── solo cuando hay dataset cargado */}
+          {datasetInfo && (
+            <div className="card" style={{ padding: 16, maxHeight: 320, overflow: "hidden", display: "flex", flexDirection: "column", border: "1px solid #2d7a2d30" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ fontSize: 9, color: "#4CAF50", letterSpacing: "0.15em", textTransform: "uppercase" }}>
+                  📂 Dataset: {datasetInfo.archivo} — {datasetInfo.muestras} muestras
                 </div>
-                {isDataset && (
-                  <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-                    {[
-                      { label: "Apta", val: datasetInfo.distribucion_clases?.apta, color: "#00e5a0" },
-                      { label: "Contaminada", val: datasetInfo.distribucion_clases?.contaminada, color: "#f5c518" },
-                      { label: "Peligrosa", val: datasetInfo.distribucion_clases?.peligrosa, color: "#ff4c4c" },
-                    ].map(s => (
-                      <div key={s.label} style={{ background: "#060d14", borderRadius: 6, padding: "5px 10px", border: `1px solid ${s.color}30` }}>
-                        <span style={{ fontSize: 9, color: "#556677" }}>{s.label}: </span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.val ?? "—"}</span>
-                      </div>
-                    ))}
-                    <div style={{ background: "#060d14", borderRadius: 6, padding: "5px 10px", border: "1px solid #1a2d40", marginLeft: "auto" }}>
-                      <span style={{ fontSize: 9, color: "#556677" }}>Etiquetas: </span>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: datasetInfo.tiene_etiquetas ? "#00e5a0" : "#f5c518" }}>
-                        {datasetInfo.tiene_etiquetas ? "Reales" : "Auto OMS"}
-                      </span>
-                    </div>
+                <div style={{ fontSize: 9, color: "#334455" }}>↗ clic para detalle</div>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                {[
+                  { label: "Apta", val: datasetInfo.distribucion_clases?.apta, color: "#00e5a0" },
+                  { label: "Contaminada", val: datasetInfo.distribucion_clases?.contaminada, color: "#f5c518" },
+                  { label: "Peligrosa", val: datasetInfo.distribucion_clases?.peligrosa, color: "#ff4c4c" },
+                ].map(s => (
+                  <div key={s.label} style={{ background: "#060d14", borderRadius: 6, padding: "4px 10px", border: `1px solid ${s.color}30` }}>
+                    <span style={{ fontSize: 9, color: "#556677" }}>{s.label}: </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, fontFamily: "monospace" }}>{s.val ?? "—"}</span>
                   </div>
-                )}
-                <style>{`.hist-row:hover { background: #0d2235 !important; cursor: pointer; }`}</style>
-                <div style={{ overflowY: "auto", flex: 1 }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }}>
-                    <thead>
-                      <tr>{headers.map(h => (
-                        <th key={h} style={{ textAlign: "left", padding: "4px 8px", color: "#334455", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #1a2d40", position: "sticky", top: 0, background: "#0d1b2a" }}>{h}</th>
-                      ))}</tr>
-                    </thead>
-                    <tbody>
-                      {isDataset
-                        ? (datasetInfo._rows || []).map((row, i) => (
-                            <tr key={i} className="hist-row"
-                              onClick={() => setSelectedReading({
-                                id: i, ph: row[0], turbidity: row[1], temperature: row[2],
-                                classification: {
-                                  label: row[3],
-                                  name: ["APTA PARA CONSUMO","CONTAMINADA - TRATAR","PELIGROSA - NO USAR"][row[3]],
-                                  color: ["#00e5a0","#f5c518","#ff4c4c"][row[3]]
-                                },
-                                confidence: 1, model: "Dataset", factors: ["Dato real del dataset"],
-                                alerts: [], time: `Fila ${i+1}`
-                              })}
-                              style={{ background: "transparent", transition: "background 0.15s" }}>
-                              <td style={{ padding: "4px 8px", color: "#445566" }}>{i + 1}</td>
-                              <td style={{ padding: "4px 8px", color: row[0] >= 6.5 && row[0] <= 8.5 ? "#00e5a0" : "#ff4c4c" }}>{row[0]}</td>
-                              <td style={{ padding: "4px 8px", color: row[1] <= 4 ? "#00e5a0" : "#ff4c4c" }}>{row[1]}</td>
-                              <td style={{ padding: "4px 8px", color: row[2] >= 10 && row[2] <= 25 ? "#00e5a0" : "#ff4c4c" }}>{row[2]}</td>
-                              <td style={{ padding: "4px 8px" }}>
-                                <span style={{ color: ["#00e5a0","#f5c518","#ff4c4c"][row[3]], fontSize: 10, fontWeight: 600 }}>
-                                  {["✓ APTA","⚠ CONTAM.","✗ PELIGRO"][row[3]]}
-                                </span>
-                              </td>
-                            </tr>
-                          ))
-                        : [...history].reverse().map((h, i) => (
-                            <tr key={h.id} className="hist-row"
-                              onClick={() => setSelectedReading(h)}
-                              style={{ background: i === 0 ? "#0a1a2a" : "transparent", transition: "background 0.15s" }}>
-                              <td style={{ padding: "5px 8px", color: "#556677" }}>{h.time}</td>
-                              <td style={{ padding: "5px 8px", color: h.ph >= 6.5 && h.ph <= 8.5 ? "#00e5a0" : "#ff4c4c" }}>{h.ph}</td>
-                              <td style={{ padding: "5px 8px", color: h.turbidity <= 4 ? "#00e5a0" : "#ff4c4c" }}>{h.turbidity}</td>
-                              <td style={{ padding: "5px 8px", color: h.temperature >= 10 && h.temperature <= 25 ? "#00e5a0" : "#ff4c4c" }}>{h.temperature}</td>
-                              <td style={{ padding: "5px 8px" }}>
-                                <span style={{ color: h.classification.color, fontSize: 10, fontWeight: 600 }}>
-                                  {["✓ APTA","⚠ CONTAM.","✗ PELIGRO"][h.classification.label]}
-                                </span>
-                              </td>
-                              <td style={{ padding: "5px 8px", color: "#556677" }}>{(h.confidence * 100).toFixed(1)}%</td>
-                            </tr>
-                          ))
-                      }
-                    </tbody>
-                  </table>
+                ))}
+                <div style={{ background: "#060d14", borderRadius: 6, padding: "4px 10px", border: "1px solid #1a2d40", marginLeft: "auto" }}>
+                  <span style={{ fontSize: 9, color: "#556677" }}>Etiquetas: </span>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: datasetInfo.tiene_etiquetas ? "#00e5a0" : "#f5c518" }}>
+                    {datasetInfo.tiene_etiquetas ? "Reales" : "Auto OMS"}
+                  </span>
                 </div>
               </div>
-            );
-          })()}
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }}>
+                  <thead>
+                    <tr>{["#","pH","Turbidez","Temp","Clase"].map(h => (
+                      <th key={h} style={{ textAlign: "left", padding: "4px 8px", color: "#334455", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #1a2d40", position: "sticky", top: 0, background: "#0d1b2a" }}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {(datasetInfo._rows || []).map((row, i) => (
+                      <tr key={i} className="hist-row"
+                        onClick={() => setSelectedReading({
+                          id: i, ph: row[0], turbidity: row[1], temperature: row[2],
+                          classification: {
+                            label: row[3],
+                            name: ["APTA PARA CONSUMO","CONTAMINADA - TRATAR","PELIGROSA - NO USAR"][row[3]],
+                            color: ["#00e5a0","#f5c518","#ff4c4c"][row[3]]
+                          },
+                          confidence: 1, model: "Dataset", factors: ["Dato real del dataset"],
+                          alerts: [], time: `Fila ${i+1}`
+                        })}
+                        style={{ background: "transparent", transition: "background 0.15s" }}>
+                        <td style={{ padding: "4px 8px", color: "#445566" }}>{i + 1}</td>
+                        <td style={{ padding: "4px 8px", color: row[0] >= 6.5 && row[0] <= 8.5 ? "#00e5a0" : "#ff4c4c" }}>{row[0]}</td>
+                        <td style={{ padding: "4px 8px", color: row[1] <= 4 ? "#00e5a0" : "#ff4c4c" }}>{row[1]}</td>
+                        <td style={{ padding: "4px 8px", color: row[2] >= 10 && row[2] <= 25 ? "#00e5a0" : "#ff4c4c" }}>{row[2]}</td>
+                        <td style={{ padding: "4px 8px" }}>
+                          <span style={{ color: ["#00e5a0","#f5c518","#ff4c4c"][row[3]], fontSize: 10, fontWeight: 600 }}>
+                            {["✓ APTA","⚠ CONTAM.","✗ PELIGRO"][row[3]]}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── HISTORIAL LECTURAS MANUALES ── siempre visible si hay lecturas */}
+          {history.length > 0 && (
+            <div className="card" style={{ padding: 16, maxHeight: 260, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase" }}>
+                  📋 Historial de Lecturas Manuales
+                </div>
+                <div style={{ fontSize: 9, color: "#334455" }}>↗ clic para detalle</div>
+              </div>
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "'JetBrains Mono',monospace" }}>
+                  <thead>
+                    <tr>{["Hora","pH","Turbidez","Temp","Estado","Confianza"].map(h => (
+                      <th key={h} style={{ textAlign: "left", padding: "4px 8px", color: "#334455", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", borderBottom: "1px solid #1a2d40", position: "sticky", top: 0, background: "#0d1b2a" }}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {[...history].reverse().map((h, i) => (
+                      <tr key={h.id} className="hist-row"
+                        onClick={() => setSelectedReading(h)}
+                        style={{ background: i === 0 ? "#0a1a2a" : "transparent", transition: "background 0.15s" }}>
+                        <td style={{ padding: "5px 8px", color: "#556677" }}>{h.time}</td>
+                        <td style={{ padding: "5px 8px", color: h.ph >= 6.5 && h.ph <= 8.5 ? "#00e5a0" : "#ff4c4c" }}>{h.ph}</td>
+                        <td style={{ padding: "5px 8px", color: h.turbidity <= 4 ? "#00e5a0" : "#ff4c4c" }}>{h.turbidity}</td>
+                        <td style={{ padding: "5px 8px", color: h.temperature >= 10 && h.temperature <= 25 ? "#00e5a0" : "#ff4c4c" }}>{h.temperature}</td>
+                        <td style={{ padding: "5px 8px" }}>
+                          <span style={{ color: h.classification.color, fontSize: 10, fontWeight: 600 }}>
+                            {["✓ APTA","⚠ CONTAM.","✗ PELIGRO"][h.classification.label]}
+                          </span>
+                        </td>
+                        <td style={{ padding: "5px 8px", color: "#556677" }}>{(h.confidence * 100).toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
