@@ -150,6 +150,9 @@ class RandomForestModel:
         fi = self._model.feature_importances_
         self._fi = {"pH": round(fi[0], 3), "Turbidez": round(fi[1], 3), "Temperatura": round(fi[2], 3)}
 
+    def reload_model(self):
+        self._model = joblib.load(RF_PATH)
+    
     def predict(self, reading: SensorReading) -> PredictionResult:
         X     = np.array([[reading.ph, reading.turbidity, reading.temperature]])
         label = int(self._model.predict(X)[0])
@@ -181,6 +184,9 @@ class NeuralNetworkModel:
         self.architecture = "3 → 16 → 8 → 3"
         _ensure_models()
         self._model = joblib.load(MLP_PATH)
+    
+    def reload_model(self):
+        self._model = joblib.load(MLP_PATH)
 
     def predict(self, reading: SensorReading) -> PredictionResult:
         X     = np.array([[reading.ph, reading.turbidity, reading.temperature]])
@@ -209,14 +215,21 @@ class WaterAnalyzer:
     def __init__(self, model_type: str = "random_forest"):
         self._model = self.MODELS[model_type]()
 
-    def set_model(self, model_type: str):
-        if model_type not in self.MODELS:
-            raise ValueError(f"Modelo no disponible. Opciones: {list(self.MODELS.keys())}")
-        self._model = self.MODELS[model_type]()
+    def set_model(self, model_key):
+        if model_key == "random_forest":
+            self._current_model = "random_forest"
+            self.model = RandomForestModel()
+
+        elif model_key == "neural_network":
+            self._current_model = "neural_network"
+            self.model = NeuralNetworkModel()
+
+        else:
+            raise ValueError("Modelo no válido")
 
     def predict(self, reading: SensorReading) -> PredictionResult:
         return self._model.predict(reading)
 
     @property
-    def current_model(self) -> str:
-        return self._model.name
+    def current_model(self):
+        return self._current_model

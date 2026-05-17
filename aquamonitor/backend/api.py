@@ -346,102 +346,169 @@ def estado_dataset():
 @app.get("/reporte", response_class=HTMLResponse)
 def generar_reporte():
     """
-    Evalúa ambos modelos sobre el conjunto de test,
+    Evalúa el modelo activo sobre el conjunto de test,
     calcula todas las métricas y retorna un reporte HTML completo.
     """
-    # Usar dataset real si está cargado, sino datos sintéticos
+
     if _dataset_state["loaded"] and _dataset_state["X"] is not None:
         X_all = np.array(_dataset_state["X"])
         y_all = np.array(_dataset_state["y"])
+
         if len(X_all) >= 20:
-            _, X_test, _, y_test = train_test_split(X_all, y_all, test_size=0.2, random_state=42)
+            _, X_test, _, y_test = train_test_split(
+                X_all,
+                y_all,
+                test_size=0.2,
+                random_state=42,
+                shuffle=True,
+                stratify=y_all
+            )
         else:
             X_test, y_test = X_all, y_all
+
         fuente = f"Dataset real: {_dataset_state['filename']} ({_dataset_state['n_samples']} muestras)"
+
     else:
         X, y = _generate_training_data()
-        _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        _, X_test, _, y_test = train_test_split(
+            X,
+            y,
+            test_size=0.2,
+            random_state=42,
+            shuffle=True,
+            stratify=y
+        )
+
         fuente = "Datos sintéticos basados en normas OMS (5000 muestras)"
 
-    rf_model  = joblib.load(RF_PATH)
+    rf_model = joblib.load(RF_PATH)
     mlp_model = joblib.load(MLP_PATH)
 
     modelo_activo = analyzer.current_model
+
+    if modelo_activo == "neural_network":
+        modelos_a_reportar = [
+            ("Red Neuronal (MLP)", mlp_model, "mlp")
+        ]
+    else:
+        modelos_a_reportar = [
+            ("Random Forest", rf_model, "rf")
+        ]
+
     ahora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Solo genera el reporte del modelo activo en ese momento
-    todos_modelos = [
-        ("Random Forest",      rf_model,  "rf"),
-        ("Red Neuronal (MLP)", mlp_model, "mlp"),
-    ]
-    modelos_a_reportar = [
-        (n, m, k) for n, m, k in todos_modelos if n == modelo_activo
-    ]
-
     secciones = []
+
     for nombre, modelo, key in modelos_a_reportar:
         y_pred = modelo.predict(X_test)
-        proba  = modelo.predict_proba(X_test)
-        cm     = confusion_matrix(y_test, y_pred)
-        n      = len(y_test)
 
-        clases     = ["APTA (0)", "CONTAMINADA (1)", "PELIGROSA (2)"]
+        if hasattr(modelo, "predict_proba"):
+            proba = modelo.predict_proba(X_test)
+        else:
+            proba = np.zeros((len(X_test), 3))
+
+        cm = confusion_matrix(
+            y_test,
+            y_pred,
+            labels=[0, 1, 2]
+        )
+
+        n = len(y_test)
+
+        clases = ["APTA (0)", "CONTAMINADA (1)", "PELIGROSA (2)"]
         colores_cl = ["#00e5a0", "#f5c518", "#ff4c4c"]
 
-        # Métricas por clase
         metricas = []
         exactitud_total = np.trace(cm) / n
+
         for i in range(3):
             vp = cm[i, i]
             fp = cm[:, i].sum() - vp
             fn = cm[i, :].sum() - vp
             vn = n - vp - fp - fn
+
             prec = vp / (vp + fp) if (vp + fp) > 0 else 0
             sens = vp / (vp + fn) if (vp + fn) > 0 else 0
-            f1   = 2 * prec * sens / (prec + sens) if (prec + sens) > 0 else 0
-            esp  = vn / (vn + fp) if (vn + fp) > 0 else 0
-            metricas.append({"clase": clases[i], "vp": int(vp), "fp": int(fp),
-                             "fn": int(fn), "vn": int(vn),
-                             "prec": prec, "sens": sens, "f1": f1, "esp": esp})
+            f1 = 2 * prec * sens / (prec + sens) if (prec + sens) > 0 else 0
+            esp = vn / (vn + fp) if (vn + fp) > 0 else 0
 
-        # Salida deseada vs salida de la red (primeras 80 muestras)
-        y_d  = y_test[:80].tolist()
-        y_r  = y_pred[:80].tolist()
-        conf = [round(float(max(p)), 4) for p in proba[:80]]
+            metricas.append({
+                "clase": clases[i],
+                "vp": int(vp),
+                "fp": int(fp),
+                "fn": int(fn),
+                "vn": int(vn),
+                "prec": prec,
+                "sens": sens,
+                "f1": f1,
+                "esp": esp
+            })
 
-        # Error global del modelo sobre test set
-        eg     = round(1 - exactitud_total, 4)
-        e_opt  = 0.1   # error de aproximación óptimo fijo
+        y_d = y_test[:80].tolist()
+        y_r = y_pred[:80].tolist()
 
-        # Distribución de confianza
-        conf_bins = [0, 0, 0, 0, 0]  # <60 60-70 70-80 80-90 >90
+        conf = [
+            round(float(max(p)), 4)
+            for p in proba[:80]
+        ]
+
+        eg = round(1 - exactitud_total, 4)
+        e_opt = 0.1
+
+        conf_bins = [0, 0, 0, 0, 0]
+
         for p in proba:
             c = max(p)
-            if c < 0.60:   conf_bins[0] += 1
-            elif c < 0.70: conf_bins[1] += 1
-            elif c < 0.80: conf_bins[2] += 1
-            elif c < 0.90: conf_bins[3] += 1
-            else:          conf_bins[4] += 1
 
-        # Importancia de features (solo RF)
+            if c < 0.60:
+                conf_bins[0] += 1
+            elif c < 0.70:
+                conf_bins[1] += 1
+            elif c < 0.80:
+                conf_bins[2] += 1
+            elif c < 0.90:
+                conf_bins[3] += 1
+            else:
+                conf_bins[4] += 1
+
         fi = None
+
         if hasattr(modelo, "feature_importances_"):
             fi = modelo.feature_importances_.tolist()
 
+        # Muestra representativa para softmax:
+        # se usa la muestra más incierta para que se vean mejor las 3 clases
+        sample_proba = None
+
+        if proba is not None and len(proba) > 0:
+            incertidumbre = np.max(proba, axis=1)
+            idx_softmax = int(np.argmin(incertidumbre))
+            sample_proba = [
+                round(float(v), 4)
+                for v in proba[idx_softmax]
+            ]
+
         secciones.append({
-            "nombre": nombre, "key": key,
-            "cm": cm.tolist(), "metricas": metricas,
+            "nombre": nombre,
+            "key": key,
+            "cm": cm.tolist(),
+            "metricas": metricas,
             "exactitud": exactitud_total,
-            "eg": eg, "e_opt": e_opt,
-            "y_d": y_d, "y_r": y_r, "conf": conf,
+            "eg": eg,
+            "e_opt": e_opt,
+            "y_d": y_d,
+            "y_r": y_r,
+            "conf": conf,
             "conf_bins": conf_bins,
-            "fi": fi, "n_test": n,
-            "activo": nombre == modelo_activo or
-                      (modelo_activo == "Random Forest" and key == "rf") or
-                      (modelo_activo == "Red Neuronal (MLP)" and key == "mlp"),
+            "fi": fi,
+            "n_test": n,
+            "sample_proba": sample_proba,
+            "activo": True,
+            "fuente": fuente
         })
 
     html = _build_html(secciones, ahora, modelo_activo)
+
     return HTMLResponse(content=html)
 
 @app.post("/reentrenar")
@@ -502,22 +569,22 @@ def reentrenar_modelo(payload: dict = None):
         )
 
         mlp.fit(X_train, y_train)
-
-        joblib.dump(rf, RF_PATH)
-        joblib.dump(mlp, MLP_PATH)
-
+        
         modelo_solicitado = "random_forest"
 
         if payload and "modelo" in payload:
-            modelo_solicitado = payload["modelo"]
+          modelo_solicitado = payload["modelo"]
 
         if modelo_solicitado == "neural_network":
-            modelo_eval = mlp
-            modelo_nombre = "neural_network"
+          modelo_eval = mlp
+          modelo_nombre = "neural_network"
         else:
-            modelo_eval = rf
-            modelo_nombre = "random_forest"
+          modelo_eval = rf
+          modelo_nombre = "random_forest"
 
+        joblib.dump(rf, RF_PATH)
+        joblib.dump(mlp, MLP_PATH)
+        
         analyzer.set_model(modelo_nombre)
 
         y_pred = modelo_eval.predict(X_test)
