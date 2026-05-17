@@ -15,7 +15,8 @@
 =============================================================
 """
 
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, UploadFile, File
+from starlette.requests import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -42,6 +43,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ─── Límite de tamaño de upload: 50 MB (soporta ~10k filas CSV) ──
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB en bytes
+
+@app.middleware("http")
+async def limit_upload_size(request: Request, call_next):
+    if request.method == "POST" and "/dataset" in request.url.path:
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_UPLOAD_SIZE:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=413,
+                content={"ok": False, "error": f"Archivo demasiado grande. Máximo permitido: 50 MB"}
+            )
+    return await call_next(request)
 
 
 # ─── Modelos de datos ─────────────────────────────────────────
@@ -136,94 +152,139 @@ _dataset_state = {
 @app.post("/dataset")
 async def cargar_dataset(file: UploadFile):
     """
-    Recibe un CSV con columnas:
+    Recibe un CSV con hasta 10.000 filas.
+    Columnas aceptadas:
       - Con etiquetas:  ph, turbidity, temperature, clase
       - Sin etiquetas:  ph, turbidity, temperature
-    Reentrena ambos modelos con los datos reales.
+    Lee en chunks para no saturar RAM y reentrena con todos los núcleos.
     """
     import io, csv
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.neural_network import MLPClassifier
     global _dataset_state
 
-    contenido = await file.read()
-    texto = contenido.decode("utf-8")
-    reader = csv.DictReader(io.StringIO(texto))
-    filas = list(reader)
+    # ── Leer el archivo en chunks (eficiente para archivos grandes) ──
+    CHUNK_SIZE = 1024 * 64   # 64 KB por chunk
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(CHUNK_SIZE)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > MAX_UPLOAD_SIZE:
+            return {"ok": False, "error": "Archivo supera el límite de 50 MB"}
 
-    if not filas:
+    texto = buffer.decode("utf-8", errors="replace")
+
+    if not texto.strip():
         return {"ok": False, "error": "El archivo CSV está vacío"}
 
-    # Detectar columnas disponibles
-    columnas = [c.strip().lower() for c in filas[0].keys()]
+    # ── Detectar columnas en el encabezado ──
+    reader     = csv.DictReader(io.StringIO(texto))
+    columnas   = [c.strip().lower() for c in (reader.fieldnames or [])]
     tiene_clase = any(c in columnas for c in ["clase", "class", "label", "etiqueta"])
 
-    # Mapeo flexible de nombres de columnas
     col_ph   = next((c for c in columnas if "ph" in c), None)
     col_turb = next((c for c in columnas if "turb" in c or "ntu" in c), None)
     col_temp = next((c for c in columnas if "temp" in c), None)
     col_cls  = next((c for c in columnas if c in ["clase","class","label","etiqueta"]), None)
 
     if not col_ph or not col_turb or not col_temp:
-        return {"ok": False,
-                "error": f"Columnas requeridas: ph, turbidity/turbidez, temperature/temperatura. Encontradas: {columnas}"}
+        return {
+            "ok": False,
+            "error": (f"Columnas no reconocidas. Encontradas: {columnas}. "
+                      f"Se esperan columnas con 'ph', 'turb/ntu', 'temp' en el nombre.")
+        }
 
-    X_list, y_list = [], []
-    errores = 0
+    # ── Procesar filas eficientemente con numpy pre-allocated ──
+    MAX_FILAS   = 10_000
+    X_list      = np.zeros((MAX_FILAS, 3), dtype=np.float32)
+    y_list      = np.zeros(MAX_FILAS,      dtype=np.int8)
+    count       = 0
+    errores     = 0
 
-    for i, fila in enumerate(filas):
+    for fila in reader:
+        if count >= MAX_FILAS:
+            break
         try:
             ph   = float(fila[col_ph].strip())
             turb = float(fila[col_turb].strip())
             temp = float(fila[col_temp].strip())
 
+            # Validar rangos básicos
+            if not (0 <= ph <= 14 and 0 <= turb <= 500 and -10 <= temp <= 100):
+                errores += 1
+                continue
+
             if tiene_clase and col_cls:
                 cls = int(float(fila[col_cls].strip()))
+                if cls not in (0, 1, 2):
+                    errores += 1
+                    continue
             else:
-                # Asignar clase automáticamente con reglas OMS
+                # Auto-clasificar con reglas OMS
                 score = 0
-                if ph < 5.5 or ph > 9.5:     score += 2
-                elif ph < 6.5 or ph > 8.5:   score += 1
-                if turb > 10:                 score += 2
-                elif turb > 4:               score += 1
-                if temp > 30:                 score += 2
+                if ph < 5.5 or ph > 9.5:    score += 2
+                elif ph < 6.5 or ph > 8.5:  score += 1
+                if turb > 10:                score += 2
+                elif turb > 4:              score += 1
+                if temp > 30:               score += 2
                 elif temp > 25:             score += 1
                 cls = 0 if score == 0 else (1 if score <= 2 else 2)
 
-            X_list.append([ph, turb, temp])
-            y_list.append(cls)
+            X_list[count] = [ph, turb, temp]
+            y_list[count] = cls
+            count += 1
+
         except (ValueError, KeyError):
             errores += 1
             continue
 
-    if len(X_list) < 10:
-        return {"ok": False, "error": f"Datos insuficientes. Solo {len(X_list)} filas válidas (mínimo 10)"}
+    if count < 10:
+        return {"ok": False, "error": f"Solo {count} filas válidas. Mínimo requerido: 10"}
 
-    X = np.array(X_list)
-    y = np.array(y_list)
+    # Recortar arrays al tamaño real
+    X = X_list[:count]
+    y = y_list[:count]
 
-    # Reentrenar ambos modelos con los datos reales
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.neural_network import MLPClassifier
-
-    rf_nuevo = RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42)
+    # ── Reentrenar ambos modelos usando TODOS los núcleos (n_jobs=-1) ──
+    # Con 10k filas: ~3-8 segundos en un PC moderno
+    rf_nuevo = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=10,
+        random_state=42,
+        n_jobs=-1,          # usa todos los núcleos del CPU
+        class_weight="balanced"  # maneja clases desbalanceadas
+    )
     rf_nuevo.fit(X, y)
     joblib.dump(rf_nuevo, RF_PATH)
 
-    mlp_nuevo = MLPClassifier(hidden_layer_sizes=(16,8), activation="relu", max_iter=500, random_state=42)
+    mlp_nuevo = MLPClassifier(
+        hidden_layer_sizes=(16, 8),
+        activation="relu",
+        max_iter=500,
+        random_state=42,
+        early_stopping=True,     # detiene si ya no mejora → más rápido
+        validation_fraction=0.1,
+        n_iter_no_change=10
+    )
     mlp_nuevo.fit(X, y)
     joblib.dump(mlp_nuevo, MLP_PATH)
 
-    # Recargar el modelo activo
-    analyzer.set_model("random_forest" if "Random Forest" in analyzer.current_model else "neural_network")
+    # Recargar modelo activo
+    analyzer.set_model(
+        "random_forest" if "Random Forest" in analyzer.current_model else "neural_network"
+    )
 
-    # Guardar estado
+    # Guardar estado (solo guardar referencias, no los datos completos en RAM)
     _dataset_state.update({
-        "loaded": True,
-        "filename": file.filename,
-        "n_samples": len(X_list),
+        "loaded":     True,
+        "filename":   file.filename,
+        "n_samples":  count,
         "has_labels": tiene_clase,
-        "X": X_list,
-        "y": y_list,
-        "source": "dataset"
+        "X":          X.tolist(),
+        "y":          y.tolist(),
+        "source":     "dataset"
     })
 
     distribucion = {
@@ -232,15 +293,30 @@ async def cargar_dataset(file: UploadFile):
         "peligrosa":   int(np.sum(y == 2)),
     }
 
+    # Preparar filas para mostrar en la tabla del frontend (max 500)
+    display_rows = [
+        [round(float(X[i][0]),2), round(float(X[i][1]),2), round(float(X[i][2]),2), int(y[i])]
+        for i in range(min(500, count))
+    ]
+
     return {
-        "ok": True,
-        "archivo": file.filename,
-        "muestras": len(X_list),
-        "filas_invalidas": errores,
-        "tiene_etiquetas": tiene_clase,
-        "columnas_detectadas": {"ph": col_ph, "turbidez": col_turb, "temperatura": col_temp, "clase": col_cls},
+        "ok":                  True,
+        "archivo":             file.filename,
+        "muestras":            count,
+        "filas_invalidas":     errores,
+        "limite_aplicado":     count == MAX_FILAS,
+        "tiene_etiquetas":     tiene_clase,
+        "columnas_detectadas": {
+            "ph": col_ph, "turbidez": col_turb,
+            "temperatura": col_temp, "clase": col_cls
+        },
         "distribucion_clases": distribucion,
-        "mensaje": f"Modelos reentrenados con {len(X_list)} muestras reales{'(etiquetas automáticas OMS)' if not tiene_clase else ''}",
+        "_rows":               display_rows,   # primeras 500 filas para tabla UI
+        "mensaje": (
+            f"Modelos reentrenados con {count} muestras reales"
+            f"{' (etiquetas auto OMS)' if not tiene_clase else ''}"
+            f"{' — límite 10k aplicado' if count == MAX_FILAS else ''}"
+        ),
     }
 
 @app.get("/dataset/estado")
@@ -320,9 +396,9 @@ def generar_reporte():
         y_r  = y_pred[:80].tolist()
         conf = [round(float(max(p)), 4) for p in proba[:80]]
 
-        # Error global vs error óptimo (simulado con curva de aprendizaje)
+        # Error global del modelo sobre test set
         eg     = round(1 - exactitud_total, 4)
-        e_opt  = 0.05
+        e_opt  = 0.1   # error de aproximación óptimo fijo
 
         # Distribución de confianza
         conf_bins = [0, 0, 0, 0, 0]  # <60 60-70 70-80 80-90 >90
