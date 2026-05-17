@@ -290,6 +290,45 @@ export default function WaterMonitor() {
       setLoading(false);
     }
   }
+  async function handleReentrenar() {
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API}/reentrenar`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          modelo: model
+        })
+      });
+
+      const data = await res.json();
+
+      if (!data.ok) {
+        setApiError(data.error || "Error reentrenando modelo");
+        return;
+      }
+
+      alert(
+        `Modelo reentrenado correctamente\n\n` +
+        `Modelo evaluado: ${data.metricas.modelo_evaluado}\n` +
+        `Total muestras: ${data.metricas.total_muestras}\n` +
+        `Accuracy: ${(data.metricas.accuracy * 100).toFixed(2)}%\n` +
+        `Precision: ${(data.metricas.precision * 100).toFixed(2)}%\n` +
+        `Recall: ${(data.metricas.recall * 100).toFixed(2)}%\n` +
+        `F1-Score: ${(data.metricas.f1 * 100).toFixed(2)}%`
+      );
+
+      setApiError(null);
+
+    } catch {
+      setApiError("No se pudo reentrenar el modelo.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // ── Cargar dataset CSV ──────────────────────────────────────
   async function handleDataset(e) {
@@ -482,8 +521,27 @@ export default function WaterMonitor() {
               }}>
               🎲 SIMULAR
             </button>
+            <button
+              onClick={handleReentrenar}
+              disabled={loading}
+              style={{
+                background: "linear-gradient(135deg,#2a1a5c,#4c1d95)",
+                border: "1px solid #8b5cf650",
+                color: "#c4b5fd",
+                borderRadius: 8,
+                padding: "13px",
+                fontFamily: "'Syne',sans-serif",
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: loading ? "default" : "pointer",
+                letterSpacing: "0.06em",
+                transition: "all 0.3s",
+              }}
+            >
+              🔄 REENTRENAR MODELO
+            </button>
           </div>
-
+          
           {/* MODO AUTOMÁTICO — siempre activo */}
           <button
             onClick={() => setAutoMode(a => !a)}

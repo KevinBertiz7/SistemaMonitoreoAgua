@@ -23,12 +23,22 @@ from pydantic import BaseModel, Field
 import datetime, json
 import numpy as np
 import joblib
-from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
 from data_layer import SensorManager
 from analysis_layer import WaterAnalyzer, _generate_training_data, RF_PATH, MLP_PATH
 from alert_layer import AlertSystem
+from firebase_service import (
+    guardar_dataset_entrenamiento,
+    guardar_historial_analisis,
+    guardar_entrenamiento,
+    obtener_datos_entrenamiento
+)
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 # ─── Inicializar capas ────────────────────────────────────────
 app = FastAPI(title="AquaMonitor API", version="1.0.0")
@@ -105,6 +115,7 @@ def analizar(lectura: LecturaManual):
         lectura.ph, lectura.turbidity, lectura.temperature)
     result  = analyzer.predict(reading)
     alerts  = alert_system.evaluate(reading, result)
+    guardar_historial_analisis(reading, result)
     return formatear_resultado(reading, result, alerts)
 
 @app.get("/simular")
@@ -112,6 +123,7 @@ def simular():
     reading = sensor_manager.get_reading()
     result  = analyzer.predict(reading)
     alerts  = alert_system.evaluate(reading, result)
+    guardar_historial_analisis(reading, result)
     return formatear_resultado(reading, result, alerts)
 
 @app.get("/historial")
@@ -298,6 +310,7 @@ async def cargar_dataset(file: UploadFile):
         [round(float(X[i][0]),2), round(float(X[i][1]),2), round(float(X[i][2]),2), int(y[i])]
         for i in range(min(500, count))
     ]
+    guardar_dataset_entrenamiento(display_rows)
 
     return {
         "ok":                  True,
@@ -431,6 +444,115 @@ def generar_reporte():
     html = _build_html(secciones, ahora, modelo_activo)
     return HTMLResponse(content=html)
 
+@app.post("/reentrenar")
+def reentrenar_modelo(payload: dict = None):
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.neural_network import MLPClassifier
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import (
+        accuracy_score,
+        precision_score,
+        recall_score,
+        f1_score,
+        confusion_matrix
+    )
+    import numpy as np
+    import joblib
+
+    try:
+        datos = obtener_datos_entrenamiento()
+
+        if len(datos) < 30:
+            return {
+                "ok": False,
+                "error": "No hay suficientes datos para reentrenar."
+            }
+
+        data = np.array(datos)
+
+        X = data[:, :3].astype(float)
+        y = data[:, 3].astype(int)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X,
+            y,
+            test_size=0.2,
+            random_state=42,
+            shuffle=True,
+            stratify=y
+        )
+
+        rf = RandomForestClassifier(
+            n_estimators=200,
+            max_depth=10,
+            random_state=42,
+            n_jobs=-1,
+            class_weight="balanced"
+        )
+
+        rf.fit(X_train, y_train)
+
+        mlp = MLPClassifier(
+            hidden_layer_sizes=(32, 16),
+            activation="relu",
+            solver="adam",
+            max_iter=1000,
+            random_state=42,
+            early_stopping=True
+        )
+
+        mlp.fit(X_train, y_train)
+
+        joblib.dump(rf, RF_PATH)
+        joblib.dump(mlp, MLP_PATH)
+
+        modelo_solicitado = "random_forest"
+
+        if payload and "modelo" in payload:
+            modelo_solicitado = payload["modelo"]
+
+        if modelo_solicitado == "neural_network":
+            modelo_eval = mlp
+            modelo_nombre = "neural_network"
+        else:
+            modelo_eval = rf
+            modelo_nombre = "random_forest"
+
+        analyzer.set_model(modelo_nombre)
+
+        y_pred = modelo_eval.predict(X_test)
+
+        matriz = confusion_matrix(y_test, y_pred).tolist()
+
+        matriz_firestore = {
+            "fila_0": matriz[0] if len(matriz) > 0 else [0, 0, 0],
+            "fila_1": matriz[1] if len(matriz) > 1 else [0, 0, 0],
+            "fila_2": matriz[2] if len(matriz) > 2 else [0, 0, 0],
+        }
+
+        metricas = {
+            "total_muestras": int(len(datos)),
+            "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
+            "precision": round(float(precision_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+            "recall": round(float(recall_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+            "f1": round(float(f1_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+            "matriz_confusion": matriz_firestore,
+            "modelo_evaluado": modelo_nombre
+        }
+
+        guardar_entrenamiento(metricas)
+
+        return {
+            "ok": True,
+            "mensaje": "Modelo reentrenado correctamente.",
+            "metricas": metricas
+        }
+
+    except Exception as e:
+        return {
+            "ok": False,
+            "error": str(e)
+        }
 
 # ─── GENERADOR HTML ───────────────────────────────────────────
 
