@@ -430,6 +430,15 @@ export default function WaterMonitor() {
           <button onClick={() => setAutoMode(a => !a)} style={{ background: autoMode ? "linear-gradient(135deg,#1a3a2a,#0d5c3a)" : "transparent", border: autoMode ? "1px solid #00e5a060" : "1px solid #1e3a5a", color: autoMode ? "#00e5a0" : "#556677", borderRadius: 8, padding: "11px", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", letterSpacing: "0.06em", transition: "all 0.2s" }}>
             {autoMode ? "⏹ DETENER AUTO" : "▶ MODO AUTOMÁTICO (cada 3s)"}
           </button>
+
+          {/* ── Botón Reporte ── */}
+          <button
+            onClick={() => window.open("http://localhost:8000/reporte", "_blank")}
+            onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 20px #7c3aed35"}
+            onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+            style={{ background: "linear-gradient(135deg,#1a1a3a,#2a1a5c)", border: "1px solid #7c3aed50", color: "#a78bfa", borderRadius: 8, padding: "13px", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", letterSpacing: "0.06em", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            📋 GENERAR REPORTE DEL MODELO
+          </button>
         </div>
 
         {/* RIGHT */}
