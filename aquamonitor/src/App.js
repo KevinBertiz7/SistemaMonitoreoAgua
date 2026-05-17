@@ -80,7 +80,26 @@ function ReadingModal({ entry, onClose }) {
         borderRadius: 16, padding: 28, width: "100%", maxWidth: 520,
         boxShadow: `0 0 40px ${c.color}20`,
       }}>
-        {/* Header */}
+        {/* Dataset banner */}
+      {datasetInfo && (
+        <div style={{ background: '#0d2a0d', borderBottom: '1px solid #2d7a2d40', padding: '10px 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 16 }}>📂</span>
+            <div>
+              <div style={{ fontSize: 12, color: '#4CAF50', fontWeight: 700 }}>{datasetInfo.archivo} — {datasetInfo.muestras} muestras cargadas</div>
+              <div style={{ fontSize: 10, color: '#5a8a5a', marginTop: 2 }}>
+                {datasetInfo.tiene_etiquetas ? 'Con etiquetas de clase reales' : 'Etiquetas asignadas automáticamente (normas OMS)'}
+                {' · '}Apta: {datasetInfo.distribucion_clases.apta} · Contaminada: {datasetInfo.distribucion_clases.contaminada} · Peligrosa: {datasetInfo.distribucion_clases.peligrosa}
+              </div>
+            </div>
+          </div>
+          <button onClick={() => setDatasetInfo(null)} style={{ background: 'none', border: '1px solid #3a5a3a', color: '#5a8a5a', borderRadius: 6, padding: '4px 10px', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}>
+            ✕ Quitar dataset
+          </button>
+        </div>
+      )}
+
+      {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
           <div>
             <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>
@@ -196,6 +215,9 @@ export default function WaterMonitor() {
   const [apiError, setApiError] = useState(null);
   const [animPulse, setAnimPulse] = useState(false);
   const [selectedReading, setSelectedReading] = useState(null);
+  const [datasetInfo, setDatasetInfo] = useState(null);   // null = sin dataset
+  const [datasetLoading, setDatasetLoading] = useState(false);
+  const fileInputRef = useRef(null);
   const autoRef = useRef(null);
 
   // ─── Cambiar modelo en el backend ──────────────────────────
@@ -289,6 +311,31 @@ export default function WaterMonitor() {
     }
   }
 
+  // ── Cargar dataset CSV ──────────────────────────────────────
+  async function handleDataset(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setDatasetLoading(true);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const res = await fetch(`${API}/dataset`, { method: 'POST', body: form });
+      const data = await res.json();
+      if (data.ok) {
+        setDatasetInfo(data);
+        setApiError(null);
+      } else {
+        setApiError('Error en dataset: ' + data.error);
+      }
+    } catch {
+      setApiError('No se pudo conectar al servidor.');
+    } finally {
+      setDatasetLoading(false);
+      e.target.value = '';
+    }
+  }
+
+  const sensorDisabled = !!datasetInfo;
   const statusColor = result ? result.classification.color : "#445566";
   const alertCount = history.filter(h => h.classification.label > 0).length;
   const phHistory = history.map(h => h.ph);
@@ -379,8 +426,11 @@ export default function WaterMonitor() {
           </div>
 
           {/* Sliders */}
-          <div className="card" style={{ padding: 16 }}>
-            <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 14 }}>Parámetros del Sensor</div>
+          <div className="card" style={{ padding: 16, opacity: sensorDisabled ? 0.45 : 1, pointerEvents: sensorDisabled ? "none" : "auto", transition: "opacity 0.3s" }}>
+            <div style={{ fontSize: 9, color: sensorDisabled ? "#2d5a3a" : "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: sensorDisabled ? 6 : 14 }}>
+              {sensorDisabled ? "⊘ DESACTIVADO — MODO DATASET" : "Parámetros del Sensor"}
+            </div>
+            {sensorDisabled && <div style={{ fontSize: 10, color: "#3a7a4a", background: "#0a1f0d", borderRadius: 6, padding: "6px 10px", marginBottom: 12, border: "1px solid #2d7a2d30" }}>Los parámetros manuales están desactivados mientras hay un dataset cargado. Quita el dataset para ingresar valores.</div>}
             {[
               { key: "ph", label: "pH", value: ph, set: setPh, min: 0, max: 14, step: 0.1, nMin: 6.5, nMax: 8.5, color: "#00b4d8", unit: "" },
               { key: "turbidity", label: "Turbidez", value: turbidity, set: setTurbidity, min: 0, max: 30, step: 0.1, nMin: 0, nMax: 4, color: "#f5c518", unit: " NTU" },
@@ -438,6 +488,39 @@ export default function WaterMonitor() {
             onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
             style={{ background: "linear-gradient(135deg,#1a1a3a,#2a1a5c)", border: "1px solid #7c3aed50", color: "#a78bfa", borderRadius: 8, padding: "13px", fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12, cursor: "pointer", letterSpacing: "0.06em", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             📋 GENERAR REPORTE DEL MODELO
+          </button>
+
+          {/* ── Botón Dataset CSV ── */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            style={{ display: "none" }}
+            onChange={handleDataset}
+          />
+          <button
+            onClick={() => fileInputRef.current.click()}
+            disabled={datasetLoading}
+            onMouseEnter={e => e.currentTarget.style.boxShadow = "0 0 20px #0d6a3a35"}
+            onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}
+            style={{
+              background: datasetInfo
+                ? "linear-gradient(135deg,#0d2a1a,#1a4d2a)"
+                : "linear-gradient(135deg,#0d1f0d,#1a3a1a)",
+              border: datasetInfo ? "1px solid #4CAF5070" : "1px solid #2d7a2d50",
+              color: datasetInfo ? "#4CAF50" : "#5a9a5a",
+              borderRadius: 8, padding: "13px",
+              fontFamily: "'Syne',sans-serif", fontWeight: 700, fontSize: 12,
+              cursor: datasetLoading ? "default" : "pointer",
+              letterSpacing: "0.06em", transition: "all 0.2s",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8
+            }}>
+            {datasetLoading
+              ? <><span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid #334", borderTopColor: "#4CAF50", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> PROCESANDO...</>
+              : datasetInfo
+                ? `📂 DATASET CARGADO (${datasetInfo.muestras} filas)`
+                : "📂 CARGAR DATASET CSV"
+            }
           </button>
         </div>
 

@@ -15,7 +15,7 @@
 =============================================================
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
@@ -119,14 +119,160 @@ def cambiar_modelo(body: CambiarModelo):
 
 # ─── ENDPOINT REPORTE HTML ────────────────────────────────────
 
+
+# ─── ENDPOINT DATASET CSV ────────────────────────────────────
+
+# Estado global del dataset cargado
+_dataset_state = {
+    "loaded": False,
+    "filename": None,
+    "n_samples": 0,
+    "has_labels": False,
+    "X": None,
+    "y": None,
+    "source": "synthetic"  # "synthetic" o "dataset"
+}
+
+@app.post("/dataset")
+async def cargar_dataset(file: UploadFile):
+    """
+    Recibe un CSV con columnas:
+      - Con etiquetas:  ph, turbidity, temperature, clase
+      - Sin etiquetas:  ph, turbidity, temperature
+    Reentrena ambos modelos con los datos reales.
+    """
+    import io, csv
+    global _dataset_state
+
+    contenido = await file.read()
+    texto = contenido.decode("utf-8")
+    reader = csv.DictReader(io.StringIO(texto))
+    filas = list(reader)
+
+    if not filas:
+        return {"ok": False, "error": "El archivo CSV está vacío"}
+
+    # Detectar columnas disponibles
+    columnas = [c.strip().lower() for c in filas[0].keys()]
+    tiene_clase = any(c in columnas for c in ["clase", "class", "label", "etiqueta"])
+
+    # Mapeo flexible de nombres de columnas
+    col_ph   = next((c for c in columnas if "ph" in c), None)
+    col_turb = next((c for c in columnas if "turb" in c or "ntu" in c), None)
+    col_temp = next((c for c in columnas if "temp" in c), None)
+    col_cls  = next((c for c in columnas if c in ["clase","class","label","etiqueta"]), None)
+
+    if not col_ph or not col_turb or not col_temp:
+        return {"ok": False,
+                "error": f"Columnas requeridas: ph, turbidity/turbidez, temperature/temperatura. Encontradas: {columnas}"}
+
+    X_list, y_list = [], []
+    errores = 0
+
+    for i, fila in enumerate(filas):
+        try:
+            ph   = float(fila[col_ph].strip())
+            turb = float(fila[col_turb].strip())
+            temp = float(fila[col_temp].strip())
+
+            if tiene_clase and col_cls:
+                cls = int(float(fila[col_cls].strip()))
+            else:
+                # Asignar clase automáticamente con reglas OMS
+                score = 0
+                if ph < 5.5 or ph > 9.5:     score += 2
+                elif ph < 6.5 or ph > 8.5:   score += 1
+                if turb > 10:                 score += 2
+                elif turb > 4:               score += 1
+                if temp > 30:                 score += 2
+                elif temp > 25:             score += 1
+                cls = 0 if score == 0 else (1 if score <= 2 else 2)
+
+            X_list.append([ph, turb, temp])
+            y_list.append(cls)
+        except (ValueError, KeyError):
+            errores += 1
+            continue
+
+    if len(X_list) < 10:
+        return {"ok": False, "error": f"Datos insuficientes. Solo {len(X_list)} filas válidas (mínimo 10)"}
+
+    X = np.array(X_list)
+    y = np.array(y_list)
+
+    # Reentrenar ambos modelos con los datos reales
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.neural_network import MLPClassifier
+
+    rf_nuevo = RandomForestClassifier(n_estimators=200, max_depth=10, random_state=42)
+    rf_nuevo.fit(X, y)
+    joblib.dump(rf_nuevo, RF_PATH)
+
+    mlp_nuevo = MLPClassifier(hidden_layer_sizes=(16,8), activation="relu", max_iter=500, random_state=42)
+    mlp_nuevo.fit(X, y)
+    joblib.dump(mlp_nuevo, MLP_PATH)
+
+    # Recargar el modelo activo
+    analyzer.set_model("random_forest" if "Random Forest" in analyzer.current_model else "neural_network")
+
+    # Guardar estado
+    _dataset_state.update({
+        "loaded": True,
+        "filename": file.filename,
+        "n_samples": len(X_list),
+        "has_labels": tiene_clase,
+        "X": X_list,
+        "y": y_list,
+        "source": "dataset"
+    })
+
+    distribucion = {
+        "apta":        int(np.sum(y == 0)),
+        "contaminada": int(np.sum(y == 1)),
+        "peligrosa":   int(np.sum(y == 2)),
+    }
+
+    return {
+        "ok": True,
+        "archivo": file.filename,
+        "muestras": len(X_list),
+        "filas_invalidas": errores,
+        "tiene_etiquetas": tiene_clase,
+        "columnas_detectadas": {"ph": col_ph, "turbidez": col_turb, "temperatura": col_temp, "clase": col_cls},
+        "distribucion_clases": distribucion,
+        "mensaje": f"Modelos reentrenados con {len(X_list)} muestras reales{'(etiquetas automáticas OMS)' if not tiene_clase else ''}",
+    }
+
+@app.get("/dataset/estado")
+def estado_dataset():
+    """Retorna si hay un dataset cargado y su info."""
+    return {
+        "loaded": _dataset_state["loaded"],
+        "filename": _dataset_state["filename"],
+        "n_samples": _dataset_state["n_samples"],
+        "has_labels": _dataset_state["has_labels"],
+        "source": _dataset_state["source"],
+    }
+
 @app.get("/reporte", response_class=HTMLResponse)
 def generar_reporte():
     """
     Evalúa ambos modelos sobre el conjunto de test,
     calcula todas las métricas y retorna un reporte HTML completo.
     """
-    X, y = _generate_training_data()
-    _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    # Usar dataset real si está cargado, sino datos sintéticos
+    if _dataset_state["loaded"] and _dataset_state["X"] is not None:
+        X_all = np.array(_dataset_state["X"])
+        y_all = np.array(_dataset_state["y"])
+        if len(X_all) >= 20:
+            _, X_test, _, y_test = train_test_split(X_all, y_all, test_size=0.2, random_state=42)
+        else:
+            X_test, y_test = X_all, y_all
+        fuente = f"Dataset real: {_dataset_state['filename']} ({_dataset_state['n_samples']} muestras)"
+    else:
+        X, y = _generate_training_data()
+        _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        fuente = "Datos sintéticos basados en normas OMS (5000 muestras)"
 
     rf_model  = joblib.load(RF_PATH)
     mlp_model = joblib.load(MLP_PATH)
