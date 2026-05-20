@@ -101,6 +101,7 @@ class RandomForestModel:
         return PredictionResult(label, round(float(proba[label]),4), self.name, details)
 
 
+
 class WaterAnalyzer:
     def __init__(self, model_type="random_forest"):
         self._model       = RandomForestModel()

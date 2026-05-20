@@ -1,13 +1,13 @@
 """
-=============================================================
+==
   CAPA 3: ALERT LAYER — Sistema de Alertas
-=============================================================
+
   Responsabilidad:
     - Evaluar lecturas contra umbrales normativos
     - Generar alertas por parámetro (pH, turbidez, temperatura)
     - Registrar historial de alertas
     - Extensible a: emails, SMS, webhooks, MQTT
-=============================================================
+
 """
 
 import datetime
