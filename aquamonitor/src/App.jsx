@@ -688,8 +688,8 @@ export default function WaterMonitor() {
             <button onClick={handleReentrenar} disabled={reentrenarLoading}
               style={{ background: reentrenarLoading
                   ? "#e8f5e8"
-                  : `linear-gradient(135deg,#1565C0,#1976D2)`,
-                border:`1px solid #1565C030`, color: reentrenarLoading ? UPC.green : "white",
+                  : `linear-gradient(135deg,${UPC.greenDark},#1a5c1a)`,
+                border:`1px solid ${UPC.yellow}50`, color: reentrenarLoading ? UPC.green : "white",
                 borderRadius:8, padding:"13px", fontFamily:"'Segoe UI',sans-serif",
                 fontWeight:700, fontSize:12, cursor: reentrenarLoading ? "default" : "pointer",
                 letterSpacing:".06em", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
