@@ -202,6 +202,92 @@ def estado_dataset():
     return {"loaded":_dataset_state["loaded"],"filename":_dataset_state["filename"],
             "n_samples":_dataset_state["n_samples"],"source":_dataset_state["source"]}
 
+
+# ─── REENTRENAR MODELO ────────────────────────────────────────
+@app.post("/reentrenar")
+def reentrenar_modelo():
+    """
+    Lógica original:
+    - Obtiene datos de Firebase (dataset_entrenamiento + historial confianza >= 90%)
+    - Reentrena el Random Forest
+    - Evalúa sobre test set
+    - Guarda métricas en Firebase (colección entrenamientos_modelo)
+    """
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import (
+        accuracy_score, precision_score,
+        recall_score, f1_score, confusion_matrix
+    )
+
+    try:
+        datos = obtener_datos_entrenamiento()
+
+        if len(datos) < 30:
+            return {
+                "ok": False,
+                "error": f"No hay suficientes datos para reentrenar. "
+                         f"Se necesitan al menos 30, hay {len(datos)}."
+            }
+
+        data = np.array(datos)
+        X    = data[:, :3].astype(float)
+        y    = data[:, 3].astype(int)
+
+        # Stratify solo si hay al menos 2 clases
+        stratify = y if len(np.unique(y)) > 1 else None
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42,
+            shuffle=True, stratify=stratify
+        )
+
+        # Entrenar Random Forest con datos reales
+        rf = RandomForestClassifier(
+            n_estimators=200,
+            max_depth=10,
+            random_state=42,
+            n_jobs=-1,
+            class_weight="balanced"
+        )
+        rf.fit(X_train, y_train)
+        joblib.dump(rf, RF_PATH)
+
+        # Recargar el modelo activo en memoria
+        analyzer._model.reload_model()
+
+        # Evaluar
+        y_pred = rf.predict(X_test)
+        matriz = confusion_matrix(y_test, y_pred).tolist()
+
+        # Asegurar 3 filas en la matriz
+        while len(matriz) < 3:
+            matriz.append([0, 0, 0])
+
+        metricas = {
+            "total_muestras": int(len(datos)),
+            "accuracy":  round(float(accuracy_score(y_test, y_pred)), 4),
+            "precision": round(float(precision_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+            "recall":    round(float(recall_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+            "f1":        round(float(f1_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+            "matriz_confusion": {
+                "fila_0": matriz[0],
+                "fila_1": matriz[1],
+                "fila_2": matriz[2],
+            },
+            "modelo_evaluado": "random_forest"
+        }
+
+        # Guardar métricas en Firebase
+        guardar_entrenamiento(metricas)
+
+        return {
+            "ok":      True,
+            "mensaje": f"Random Forest reentrenado con {len(datos)} muestras de Firebase.",
+            "metricas": metricas
+        }
+
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 # ─── REPORTE HTML ─────────────────────────────────────────────
 @app.get("/reporte", response_class=HTMLResponse)
 def generar_reporte():

@@ -227,6 +227,8 @@ export default function WaterMonitor() {
   const [selectedReading, setSelectedReading] = useState(null);
   const [datasetInfo, setDatasetInfo]     = useState(null);
   const [datasetLoading, setDatasetLoading] = useState(false);
+  const [reentrenando, setReentrenando]     = useState(false);
+  const [reentrenarResult, setReentrenarResult] = useState(null);
   // Firebase historial
   const [fbHistory, setFbHistory]         = useState([]);
   const [fbLoading, setFbLoading]         = useState(false);
@@ -321,6 +323,16 @@ export default function WaterMonitor() {
       else         { setApiError("Error en dataset: " + data.error); }
     } catch { setApiError("No se pudo conectar al servidor."); }
     finally { setDatasetLoading(false); e.target.value=""; }
+  }
+
+  async function handleReentrenar() {
+    setReentrenando(true); setReentrenarResult(null);
+    try {
+      const res  = await fetch(`${API}/reentrenar`, { method: "POST" });
+      const data = await res.json();
+      setReentrenarResult(data);
+    } catch { setReentrenarResult({ ok: false, error: "No se pudo conectar al servidor." }); }
+    finally { setReentrenando(false); }
   }
 
   const phHistory   = history.map(h=>h.ph);
@@ -556,6 +568,55 @@ export default function WaterMonitor() {
                   display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
                 🗑 LIMPIAR DATASET ({datasetInfo.muestras} filas)
               </button>
+            )}
+
+            {/* ── REENTRENAR CON FIREBASE ── */}
+            <button onClick={handleReentrenar} disabled={reentrenando}
+              style={{ background: reentrenando
+                  ? UPC.greenPale
+                  : `linear-gradient(135deg,${UPC.greenDark},${UPC.green})`,
+                border: `1px solid ${UPC.green}`, color: reentrenando ? UPC.green : "white",
+                borderRadius:8, padding:"13px", fontFamily:"'Segoe UI',sans-serif",
+                fontWeight:700, fontSize:12, cursor: reentrenando ? "default" : "pointer",
+                letterSpacing:".06em", transition:"all .2s",
+                display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              {reentrenando
+                ? <><span style={{ display:"inline-block",width:12,height:12,
+                    border:`2px solid ${UPC.border}`,borderTopColor:UPC.green,
+                    borderRadius:"50%",animation:"spin .7s linear infinite" }}/> REENTRENANDO...</>
+                : " REENTRENAR "
+              }
+            </button>
+
+            {/* Resultado del reentrenamiento */}
+            {reentrenarResult && (
+              <div style={{ background: reentrenarResult.ok ? UPC.greenPale : "#ffebee",
+                border: `1px solid ${reentrenarResult.ok ? UPC.border : "#ffcdd2"}`,
+                borderRadius:8, padding:"12px 14px", fontSize:11 }}>
+                {reentrenarResult.ok ? (
+                  <>
+                    <div style={{ fontWeight:700, color:UPC.green, marginBottom:6 }}>
+                      ✅ {reentrenarResult.mensaje}
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:4, fontFamily:"monospace" }}>
+                      {[
+                        ["Exactitud",  `${(reentrenarResult.metricas.accuracy*100).toFixed(2)}%`],
+                        ["Precisión",  `${(reentrenarResult.metricas.precision*100).toFixed(2)}%`],
+                        ["Recall",     `${(reentrenarResult.metricas.recall*100).toFixed(2)}%`],
+                        ["F1-Score",   `${(reentrenarResult.metricas.f1*100).toFixed(2)}%`],
+                        ["Muestras",   reentrenarResult.metricas.total_muestras],
+                      ].map(([k,v])=>(
+                        <div key={k} style={{ fontSize:10 }}>
+                          <span style={{ color:UPC.textLight }}>{k}: </span>
+                          <span style={{ fontWeight:700, color:UPC.greenDark }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ color:"#c62828", fontWeight:700 }}>❌ {reentrenarResult.error}</div>
+                )}
+              </div>
             )}
           </div>
 
