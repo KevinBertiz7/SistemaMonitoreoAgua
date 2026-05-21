@@ -64,7 +64,7 @@ function Sparkline({ data, color, min, max }) {
   if (data.length < 2) return null;
   const w = 120, h = 28;
   const range = max - min || 1;
-  const pts = data.slice(-20).map((v, i, arr) => {
+  const pts = data.slice(-50).map((v, i, arr) => {
     const x = (i / (arr.length - 1)) * w;
     const y = h - ((v - min) / range) * h;
     return `${x},${y}`;
@@ -77,120 +77,231 @@ function Sparkline({ data, color, min, max }) {
   );
 }
 
+// ─── MOTOR DE RECOMENDACIONES ─────────────────────────────────
+function generarRecomendaciones(ph, turbidity, temperature, label) {
+  const recs = [];
+
+  // ── pH ──
+  if (ph < 5.5) {
+    recs.push({ tipo: "critical", icono: "🚫", titulo: "pH extremadamente ácido",
+      desc: `El pH de ${ph} está muy por debajo del mínimo seguro (6.5). El agua puede corroer tuberías y liberar metales tóxicos.`,
+      accion: "Aplicar cal hidratada o bicarbonato de sodio para neutralizar. No consumir bajo ninguna circunstancia." });
+  } else if (ph < 6.5) {
+    recs.push({ tipo: "warning", icono: "⚠️", titulo: "pH ácido — requiere tratamiento",
+      desc: `El pH de ${ph} está por debajo del rango potable (6.5–8.5). Puede causar irritación gastrointestinal.`,
+      accion: "Tratar con neutralizadores de pH antes del consumo. Revisar fuentes de acidez (lluvia ácida, contaminación industrial)." });
+  } else if (ph > 9.5) {
+    recs.push({ tipo: "critical", icono: "🚫", titulo: "pH extremadamente alcalino",
+      desc: `El pH de ${ph} supera el límite crítico (9.5). Puede causar daños en mucosas y tracto digestivo.`,
+      accion: "No consumir. Aplicar ácido cítrico o dióxido de carbono para reducir pH. Investigar fuente de contaminación alcalina." });
+  } else if (ph > 8.5) {
+    recs.push({ tipo: "warning", icono: "⚠️", titulo: "pH ligeramente alcalino",
+      desc: `El pH de ${ph} está sobre el rango recomendado (8.5). No es peligroso de inmediato pero afecta el sabor y la eficiencia del cloro.`,
+      accion: "Monitorear continuamente. Considerar sistemas de ósmosis inversa si persiste." });
+  } else {
+    recs.push({ tipo: "ok", icono: "✅", titulo: "pH dentro del rango óptimo",
+      desc: `El pH de ${ph} está dentro del rango potable (6.5–8.5). Condición adecuada para consumo humano.`,
+      accion: "Mantener monitoreo periódico." });
+  }
+
+  // ── Turbidez ──
+  if (turbidity > 10) {
+    recs.push({ tipo: "critical", icono: "🚫", titulo: "Turbidez peligrosamente alta",
+      desc: `Turbidez de ${turbidity} NTU indica presencia de sólidos en suspensión, sedimentos o microorganismos. Riesgo biológico elevado.`,
+      accion: "No consumir. Aplicar floculación, sedimentación y filtración. Verificar integridad de la fuente hídrica." });
+  } else if (turbidity > 4) {
+    recs.push({ tipo: "warning", icono: "⚠️", titulo: "Turbidez elevada — filtrar antes de usar",
+      desc: `Turbidez de ${turbidity} NTU supera el límite OMS (4 NTU). Puede contener partículas que protejan patógenos de la cloración.`,
+      accion: "Filtrar con arena o carbón activado. Aumentar dosis de coagulante si hay planta de tratamiento." });
+  } else {
+    recs.push({ tipo: "ok", icono: "✅", titulo: "Turbidez aceptable",
+      desc: `Turbidez de ${turbidity} NTU está dentro del límite OMS (< 4 NTU). Agua visualmente clara.`,
+      accion: "Continuar monitoreo. Mantener filtros en buen estado." });
+  }
+
+  // ── Temperatura ──
+  if (temperature > 30) {
+    recs.push({ tipo: "critical", icono: "🌡️", titulo: "Temperatura crítica — riesgo bacteriano",
+      desc: `Temperatura de ${temperature}°C favorece la proliferación acelerada de bacterias como Legionella y E. coli.`,
+      accion: "No consumir sin tratamiento. Enfriar el agua y aplicar cloración reforzada. Revisar almacenamiento." });
+  } else if (temperature > 25) {
+    recs.push({ tipo: "warning", icono: "⚠️", titulo: "Temperatura elevada",
+      desc: `Temperatura de ${temperature}°C puede acelerar el crecimiento bacteriano y reducir la eficacia del cloro.`,
+      accion: "Aumentar vigilancia microbiológica. Evitar almacenamiento prolongado a esta temperatura." });
+  } else {
+    recs.push({ tipo: "ok", icono: "✅", titulo: "Temperatura adecuada",
+      desc: `Temperatura de ${temperature}°C está dentro del rango aceptable (10–25°C). Condiciones favorables para la conservación del agua.`,
+      accion: "Mantener condiciones de almacenamiento actuales." });
+  }
+
+  // ── Veredicto global ──
+  const veredicto = label === 0
+    ? { tipo: "ok", icono: "💧", titulo: "APTA PARA CONSUMO HUMANO",
+        desc: "Todos los parámetros evaluados están dentro de las normas de la OMS para agua potable.",
+        accion: "El agua puede consumirse directamente. Mantener monitoreo regular cada 24–48 horas." }
+    : label === 1
+    ? { tipo: "warning", icono: "⚗️", titulo: "REQUIERE TRATAMIENTO ANTES DE CONSUMO",
+        desc: "Uno o más parámetros están fuera del rango seguro. El agua presenta riesgo para la salud si se consume sin tratar.",
+        accion: "Aplicar los tratamientos indicados por parámetro. Re-analizar antes de habilitar el consumo." }
+    : { tipo: "critical", icono: "☣️", titulo: "PELIGROSA — NO CONSUMIR",
+        desc: "Los parámetros indican contaminación severa. El consumo puede causar enfermedades graves.",
+        accion: "Suspender suministro inmediatamente. Notificar autoridades sanitarias. Buscar fuente alternativa certificada." };
+
+  return { recs, veredicto };
+}
+
 // ─── MODAL DETALLE DE LECTURA ─────────────────────────────────
 function ReadingModal({ entry, onClose }) {
   if (!entry) return null;
   const c = entry.classification;
+  const { recs, veredicto } = generarRecomendaciones(
+    entry.ph, entry.turbidity, entry.temperature, c.label
+  );
 
   const barW = (val) => `${Math.round(val * 100)}%`;
 
+  const recColor = { ok: { bg:"#e8f5e8", border:"#a5d6a7", text:"#2e7d32", badge:"#4CAF50" },
+    warning: { bg:"#fff8e1", border:"#ffe082", text:"#f57f17", badge:"#f9a825" },
+    critical: { bg:"#ffebee", border:"#ef9a9a", text:"#c62828", badge:"#e53935" } };
+
   return (
     <div onClick={onClose} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 50,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 50,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      overflowY: "auto",
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: "#0d1b2a", border: `1px solid ${c.color}40`,
-        borderRadius: 16, padding: 28, width: "100%", maxWidth: 520,
-        boxShadow: `0 0 40px ${c.color}20`,
+        background: "white", border: `2px solid ${c.color}`,
+        borderRadius: 16, padding: 24, width: "100%", maxWidth: 580,
+        boxShadow: `0 8px 40px ${c.color}30`, maxHeight: "90vh", overflowY: "auto",
+        margin: "auto",
       }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
+        {/* Header */}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18 }}>
           <div>
-            <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 6 }}>
+            <div style={{ fontSize:9, color:"#888", letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:4 }}>
               {entry.time} · {entry.model}
             </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: c.color, textShadow: `0 0 16px ${c.color}50` }}>
+            <div style={{ fontSize:20, fontWeight:800, color:c.color }}>
               {c.name}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#445566", fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:"#aaa", fontSize:22, cursor:"pointer", lineHeight:1 }}>✕</button>
         </div>
 
-        {/* Parámetros */}
-        <div style={{ background: "#060d14", borderRadius: 10, padding: "14px 16px", marginBottom: 16, border: "1px solid #1a2d40" }}>
-          <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 12 }}>Valores medidos</div>
+        {/* Valores medidos */}
+        <div style={{ background:"#f9fafb", borderRadius:10, padding:"14px 16px", marginBottom:14, border:"1px solid #e0e0e0" }}>
+          <div style={{ fontSize:9, color:"#888", letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:12 }}>Valores medidos</div>
           {[
-            { label: "pH", value: entry.ph, min: 6.5, max: 8.5, absMin: 0, absMax: 14, unit: "", color: "#00b4d8" },
-            { label: "Turbidez", value: entry.turbidity, min: 0, max: 4, absMin: 0, absMax: 25, unit: " NTU", color: "#f5c518" },
-            { label: "Temperatura", value: entry.temperature, min: 10, max: 25, absMin: 0, absMax: 50, unit: "°C", color: "#ff7043" },
+            { label:"pH", value:entry.ph, min:6.5, max:8.5, absMin:0, absMax:14, unit:"", color:"#2d7a2d" },
+            { label:"Turbidez", value:entry.turbidity, min:0, max:4, absMin:0, absMax:25, unit:" NTU", color:"#f9a825" },
+            { label:"Temperatura", value:entry.temperature, min:10, max:25, absMin:0, absMax:50, unit:"°C", color:"#e53935" },
           ].map(p => {
             const inRange = p.value >= p.min && p.value <= p.max;
             const pct = Math.max(0, Math.min(1, (p.value - p.absMin) / (p.absMax - p.absMin)));
             return (
-              <div key={p.label} style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
-                  <span style={{ fontSize: 11, color: "#8a9bb0" }}>{p.label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: inRange ? "#00e5a0" : "#ff4c4c" }}>
-                    {p.value}{p.unit} {inRange ? "✓" : "✗"}
+              <div key={p.label} style={{ marginBottom:12 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                  <span style={{ fontSize:11, color:"#555" }}>{p.label}</span>
+                  <span style={{ fontSize:13, fontWeight:700, fontFamily:"monospace", color:inRange?"#2d7a2d":"#e53935" }}>
+                    {p.value}{p.unit} {inRange?"✓":"✗"}
                   </span>
                 </div>
-                <div style={{ height: 6, background: "#1a2d3a", borderRadius: 3, position: "relative" }}>
-                  {/* rango normal */}
-                  <div style={{
-                    position: "absolute", height: "100%", borderRadius: 3,
-                    left: `${((p.min - p.absMin) / (p.absMax - p.absMin)) * 100}%`,
-                    width: `${((p.max - p.min) / (p.absMax - p.absMin)) * 100}%`,
-                    background: "#00e5a015", border: "1px solid #00e5a030",
-                  }} />
-                  {/* valor */}
-                  <div style={{ width: `${pct * 100}%`, height: "100%", background: inRange ? p.color : "#ff4c4c", borderRadius: 3, opacity: 0.8 }} />
+                <div style={{ height:6, background:"#e8e8e8", borderRadius:3, position:"relative" }}>
+                  <div style={{ position:"absolute", height:"100%", borderRadius:3,
+                    left:`${((p.min-p.absMin)/(p.absMax-p.absMin))*100}%`,
+                    width:`${((p.max-p.min)/(p.absMax-p.absMin))*100}%`,
+                    background:"#2d7a2d15", border:"1px solid #2d7a2d30" }}/>
+                  <div style={{ width:`${pct*100}%`, height:"100%", background:inRange?p.color:"#e53935", borderRadius:3, opacity:.8 }}/>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                  <span style={{ fontSize: 8, color: "#334455" }}>{p.absMin}</span>
-                  <span style={{ fontSize: 8, color: "#445566" }}>Normal: {p.min}–{p.max}</span>
-                  <span style={{ fontSize: 8, color: "#334455" }}>{p.absMax}</span>
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:2 }}>
+                  <span style={{ fontSize:8, color:"#bbb" }}>{p.absMin}</span>
+                  <span style={{ fontSize:8, color:"#999" }}>Normal: {p.min}–{p.max}</span>
+                  <span style={{ fontSize:8, color:"#bbb" }}>{p.absMax}</span>
                 </div>
               </div>
             );
           })}
         </div>
 
-        {/* Probabilidades de los modelos */}
+        {/* Probabilidades */}
         {entry.proba && (
-          <div style={{ background: "#060d14", borderRadius: 10, padding: "14px 16px", marginBottom: 16, border: "1px solid #1a2d40" }}>
-            <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 12 }}>
-              Probabilidades del modelo — {entry.model}
+          <div style={{ background:"#f9fafb", borderRadius:10, padding:"14px 16px", marginBottom:14, border:"1px solid #e0e0e0" }}>
+            <div style={{ fontSize:9, color:"#888", letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:12 }}>
+              Probabilidades — {entry.model}
             </div>
             {[
-              { label: "APTA PARA CONSUMO", key: "APTA", color: "#00e5a0" },
-              { label: "CONTAMINADA", key: "CONTAMINADA", color: "#f5c518" },
-              { label: "PELIGROSA", key: "PELIGROSA", color: "#ff4c4c" },
+              { label:"APTA PARA CONSUMO", key:"APTA", color:"#4CAF50" },
+              { label:"CONTAMINADA", key:"CONTAMINADA", color:"#f9a825" },
+              { label:"PELIGROSA", key:"PELIGROSA", color:"#e53935" },
             ].map(p => (
-              <div key={p.key} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, color: "#8a9bb0" }}>{p.label}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: p.color }}>
-                    {((entry.proba[p.key] || 0) * 100).toFixed(1)}%
+              <div key={p.key} style={{ marginBottom:10 }}>
+                <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                  <span style={{ fontSize:10, color:"#555" }}>{p.label}</span>
+                  <span style={{ fontSize:11, fontWeight:700, fontFamily:"monospace", color:p.color }}>
+                    {((entry.proba[p.key]||0)*100).toFixed(1)}%
                   </span>
                 </div>
-                <div style={{ height: 5, background: "#1a2d3a", borderRadius: 3 }}>
-                  <div style={{ width: barW(entry.proba[p.key] || 0), height: "100%", background: p.color, borderRadius: 3, opacity: 0.85, transition: "width 0.4s" }} />
+                <div style={{ height:5, background:"#e8e8e8", borderRadius:3 }}>
+                  <div style={{ width:barW(entry.proba[p.key]||0), height:"100%", background:p.color, borderRadius:3, opacity:.85, transition:"width .4s" }}/>
                 </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Factores y alertas */}
-        <div style={{ background: "#060d14", borderRadius: 10, padding: "14px 16px", border: "1px solid #1a2d40" }}>
-          <div style={{ fontSize: 9, color: "#445566", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: 10 }}>Factores detectados</div>
-          {entry.factors.map((f, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, marginBottom: 5, alignItems: "center" }}>
-              <div style={{ width: 4, height: 4, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 11, color: "#8a9bb0", fontFamily: "'JetBrains Mono',monospace" }}>{f}</span>
+        {/* ── RECOMENDACIONES ── */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:9, color:"#888", letterSpacing:"0.15em", textTransform:"uppercase", marginBottom:10 }}>
+            🔬 Análisis y Recomendaciones
+          </div>
+
+          {/* Veredicto global */}
+          {(() => { const col = recColor[veredicto.tipo]; return (
+            <div style={{ background:col.bg, border:`2px solid ${col.border}`, borderRadius:10, padding:"14px 16px", marginBottom:12 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                <span style={{ fontSize:20 }}>{veredicto.icono}</span>
+                <span style={{ fontWeight:800, fontSize:13, color:col.text }}>{veredicto.titulo}</span>
+              </div>
+              <div style={{ fontSize:11, color:col.text, marginBottom:6, lineHeight:1.5 }}>{veredicto.desc}</div>
+              <div style={{ fontSize:11, background:"rgba(0,0,0,.05)", borderRadius:6, padding:"8px 12px", color:col.text, fontWeight:600 }}>
+                🔧 {veredicto.accion}
+              </div>
             </div>
-          ))}
-          {entry.alerts && entry.alerts.length > 0 && (
-            <>
-              <div style={{ fontSize: 9, color: "#664444", letterSpacing: "0.15em", textTransform: "uppercase", marginTop: 14, marginBottom: 8 }}>Alertas</div>
-              {entry.alerts.map((a, i) => (
-                <div key={i} style={{ fontSize: 11, color: a.nivel === "CRITICAL" ? "#ff4c4c" : "#f5c518", fontFamily: "'JetBrains Mono',monospace", marginBottom: 4 }}>
-                  {a.nivel === "CRITICAL" ? "🚨" : "⚠"} [{a.parametro}] {a.mensaje}
+          ); })()}
+
+          {/* Por parámetro */}
+          {recs.map((r, i) => {
+            const col = recColor[r.tipo];
+            return (
+              <div key={i} style={{ background:col.bg, border:`1px solid ${col.border}`, borderRadius:8, padding:"12px 14px", marginBottom:8 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:5 }}>
+                  <span style={{ fontSize:15 }}>{r.icono}</span>
+                  <span style={{ fontWeight:700, fontSize:12, color:col.text }}>{r.titulo}</span>
+                  <span style={{ marginLeft:"auto", fontSize:9, fontWeight:700, background:col.badge, color:"white", padding:"2px 7px", borderRadius:4 }}>
+                    {r.tipo === "ok" ? "OK" : r.tipo === "warning" ? "ATENCIÓN" : "CRÍTICO"}
+                  </span>
                 </div>
-              ))}
-            </>
-          )}
+                <div style={{ fontSize:11, color:"#555", marginBottom:6, lineHeight:1.5 }}>{r.desc}</div>
+                <div style={{ fontSize:11, color:col.text, fontWeight:600, background:"rgba(0,0,0,.04)", borderRadius:5, padding:"6px 10px" }}>
+                  📋 {r.accion}
+                </div>
+              </div>
+            );
+          })}
         </div>
+
+        {/* Alertas del sistema */}
+        {entry.alerts && entry.alerts.length > 0 && (
+          <div style={{ background:"#ffebee", borderRadius:8, padding:"12px 14px", border:"1px solid #ffcdd2" }}>
+            <div style={{ fontSize:9, color:"#b71c1c", letterSpacing:".15em", textTransform:"uppercase", marginBottom:8 }}>Alertas del sistema</div>
+            {entry.alerts.map((a, i) => (
+              <div key={i} style={{ fontSize:11, color:a.nivel==="CRITICAL"?"#c62828":"#f9a825", fontFamily:"monospace", marginBottom:4 }}>
+                {a.nivel==="CRITICAL"?"🚨":"⚠"} [{a.parametro}] {a.mensaje}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -227,8 +338,6 @@ export default function WaterMonitor() {
   const [selectedReading, setSelectedReading] = useState(null);
   const [datasetInfo, setDatasetInfo]     = useState(null);
   const [datasetLoading, setDatasetLoading] = useState(false);
-  const [reentrenando, setReentrenando]     = useState(false);
-  const [reentrenarResult, setReentrenarResult] = useState(null);
   // Firebase historial
   const [fbHistory, setFbHistory]         = useState([]);
   const [fbLoading, setFbLoading]         = useState(false);
@@ -278,7 +387,7 @@ export default function WaterMonitor() {
       time: new Date().toLocaleTimeString("es", {hour:"2-digit",minute:"2-digit",second:"2-digit"}),
     };
     setResult(entry);
-    setHistory(prev => [...prev.slice(-49), entry]);
+    setHistory(prev => [...prev, entry]);
     setAnimPulse(true); setTimeout(() => setAnimPulse(false), 600);
     setApiError(null);
   }
@@ -323,16 +432,6 @@ export default function WaterMonitor() {
       else         { setApiError("Error en dataset: " + data.error); }
     } catch { setApiError("No se pudo conectar al servidor."); }
     finally { setDatasetLoading(false); e.target.value=""; }
-  }
-
-  async function handleReentrenar() {
-    setReentrenando(true); setReentrenarResult(null);
-    try {
-      const res  = await fetch(`${API}/reentrenar`, { method: "POST" });
-      const data = await res.json();
-      setReentrenarResult(data);
-    } catch { setReentrenarResult({ ok: false, error: "No se pudo conectar al servidor." }); }
-    finally { setReentrenando(false); }
   }
 
   const phHistory   = history.map(h=>h.ph);
@@ -426,7 +525,7 @@ export default function WaterMonitor() {
         <button className={`tab-btn ${activeTab==="monitor"?"active":""}`}
           onClick={()=>setActiveTab("monitor")}>📡 Monitor</button>
         <button className={`tab-btn ${activeTab==="historial"?"active":""}`}
-          onClick={()=>setActiveTab("historial")}>🗄️ Historial </button>
+          onClick={()=>setActiveTab("historial")}>🗄️ Historial Firebase</button>
       </div>
 
       {/* ── API ERROR ── */}
@@ -569,55 +668,6 @@ export default function WaterMonitor() {
                 🗑 LIMPIAR DATASET ({datasetInfo.muestras} filas)
               </button>
             )}
-
-            {/* ── REENTRENAR CON FIREBASE ── */}
-            <button onClick={handleReentrenar} disabled={reentrenando}
-              style={{ background: reentrenando
-                  ? UPC.greenPale
-                  : `linear-gradient(135deg,${UPC.greenDark},${UPC.green})`,
-                border: `1px solid ${UPC.green}`, color: reentrenando ? UPC.green : "white",
-                borderRadius:8, padding:"13px", fontFamily:"'Segoe UI',sans-serif",
-                fontWeight:700, fontSize:12, cursor: reentrenando ? "default" : "pointer",
-                letterSpacing:".06em", transition:"all .2s",
-                display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
-              {reentrenando
-                ? <><span style={{ display:"inline-block",width:12,height:12,
-                    border:`2px solid ${UPC.border}`,borderTopColor:UPC.green,
-                    borderRadius:"50%",animation:"spin .7s linear infinite" }}/> REENTRENANDO...</>
-                : " REENTRENAR "
-              }
-            </button>
-
-            {/* Resultado del reentrenamiento */}
-            {reentrenarResult && (
-              <div style={{ background: reentrenarResult.ok ? UPC.greenPale : "#ffebee",
-                border: `1px solid ${reentrenarResult.ok ? UPC.border : "#ffcdd2"}`,
-                borderRadius:8, padding:"12px 14px", fontSize:11 }}>
-                {reentrenarResult.ok ? (
-                  <>
-                    <div style={{ fontWeight:700, color:UPC.green, marginBottom:6 }}>
-                      ✅ {reentrenarResult.mensaje}
-                    </div>
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:4, fontFamily:"monospace" }}>
-                      {[
-                        ["Exactitud",  `${(reentrenarResult.metricas.accuracy*100).toFixed(2)}%`],
-                        ["Precisión",  `${(reentrenarResult.metricas.precision*100).toFixed(2)}%`],
-                        ["Recall",     `${(reentrenarResult.metricas.recall*100).toFixed(2)}%`],
-                        ["F1-Score",   `${(reentrenarResult.metricas.f1*100).toFixed(2)}%`],
-                        ["Muestras",   reentrenarResult.metricas.total_muestras],
-                      ].map(([k,v])=>(
-                        <div key={k} style={{ fontSize:10 }}>
-                          <span style={{ color:UPC.textLight }}>{k}: </span>
-                          <span style={{ fontWeight:700, color:UPC.greenDark }}>{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ color:"#c62828", fontWeight:700 }}>❌ {reentrenarResult.error}</div>
-                )}
-              </div>
-            )}
           </div>
 
           {/* RIGHT */}
@@ -685,7 +735,7 @@ export default function WaterMonitor() {
             {history.length>=2 && (
               <div style={cardStyle}>
                 <div style={{ fontSize:9, color:UPC.textLight, letterSpacing:".15em", textTransform:"uppercase", marginBottom:12 }}>
-                  Tendencia — últimas {Math.min(20,history.length)} lecturas
+                  Tendencia — últimas {Math.min(50,history.length)} lecturas
                 </div>
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10 }}>
                   {[
@@ -739,9 +789,9 @@ export default function WaterMonitor() {
                       {(datasetInfo._rows||[]).map((row,i)=>(
                         <tr key={i} className="hist-row"
                           onClick={()=>setSelectedReading({id:i,ph:row[0],turbidity:row[1],temperature:row[2],
-                            classification:{label:row[3],name:["APTA","CONTAMINADA","PELIGROSA"][row[3]],
-                              color:[UPC.greenLight,"#f5c518","#e53935"][row[3]]},
-                            confidence:1,model:"Dataset",factors:["Dato real"],alerts:[],time:`Fila ${i+1}`})}
+                            classification:{label:row[3],name:["APTA PARA CONSUMO","CONTAMINADA - TRATAR","PELIGROSA - NO USAR"][row[3]],
+                              color:[UPC.greenLight,"#f9a825","#e53935"][row[3]]},
+                            confidence:1,model:"Dataset",factors:[],alerts:[],time:`Fila ${i+1}`})}
                           style={{ background:"transparent", transition:"background .15s" }}>
                           <td style={{ padding:"4px 8px", color:UPC.textLight }}>{i+1}</td>
                           <td style={{ padding:"4px 8px", color:row[0]>=6.5&&row[0]<=8.5?UPC.green:"#e53935" }}>{row[0]}</td>
@@ -764,15 +814,36 @@ export default function WaterMonitor() {
             {history.length>0 && (
               <div style={cardStyle}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                  <div style={{ fontSize:9, color:UPC.textLight, letterSpacing:".15em", textTransform:"uppercase" }}>
-                    📋 Historial de Lecturas Manuales
+                  <div>
+                    <div style={{ fontSize:9, color:UPC.textLight, letterSpacing:".15em", textTransform:"uppercase" }}>
+                      📋 Historial de Lecturas
+                    </div>
+                    <div style={{ fontSize:11, color:UPC.green, fontWeight:700, marginTop:2 }}>
+                      {history.length.toLocaleString("es")} lecturas totales
+                      {" · "}
+                      <span style={{ color:"#e53935" }}>{alertCount} con alertas</span>
+                      {" · "}
+                      <span style={{ color:UPC.green }}>{history.filter(h=>h.classification.label===0).length} aptas</span>
+                    </div>
                   </div>
-                  <div style={{ fontSize:9, color:UPC.textLight }}>↗ clic para detalle</div>
+                  <div style={{ fontSize:9, color:UPC.textLight }}>↗ clic para recomendaciones</div>
                 </div>
-                <div style={{ maxHeight:220, overflowY:"auto" }}>
+                {/* Stats bar */}
+                {history.length > 0 && (
+                  <div style={{ display:"flex", height:8, borderRadius:4, overflow:"hidden", marginBottom:10 }}>
+                    {[
+                      {c:UPC.greenLight, n:history.filter(h=>h.classification.label===0).length},
+                      {c:"#f9a825",     n:history.filter(h=>h.classification.label===1).length},
+                      {c:"#e53935",     n:history.filter(h=>h.classification.label===2).length},
+                    ].map((s,i)=>(
+                      <div key={i} style={{ width:`${(s.n/history.length)*100}%`, background:s.c, transition:"width .3s" }}/>
+                    ))}
+                  </div>
+                )}
+                <div style={{ maxHeight:300, overflowY:"auto" }}>
                   <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"monospace" }}>
                     <thead>
-                      <tr>{["Hora","pH","Turbidez","Temp","Estado","Confianza"].map(h=>(
+                      <tr>{["#","Hora","pH","Turbidez","Temp","Estado","Conf."].map(h=>(
                         <th key={h} style={{ textAlign:"left", padding:"4px 8px", color:UPC.textLight,
                           fontSize:9, letterSpacing:".1em", textTransform:"uppercase",
                           borderBottom:`1px solid ${UPC.border}`, position:"sticky", top:0, background:"white" }}>{h}</th>
@@ -782,13 +853,16 @@ export default function WaterMonitor() {
                       {[...history].reverse().map((h,i)=>(
                         <tr key={h.id} className="hist-row"
                           onClick={()=>setSelectedReading(h)}
-                          style={{ background:i===0?UPC.greenPale:"transparent", transition:"background .15s" }}>
+                          style={{ background:i===0?UPC.greenPale:"transparent", transition:"background .15s",
+                            borderBottom:`1px solid ${UPC.border}40` }}>
+                          <td style={{ padding:"5px 8px", color:"#bbb", fontSize:9 }}>{history.length-i}</td>
                           <td style={{ padding:"5px 8px", color:UPC.textLight }}>{h.time}</td>
-                          <td style={{ padding:"5px 8px", color:h.ph>=6.5&&h.ph<=8.5?UPC.green:"#e53935" }}>{h.ph}</td>
-                          <td style={{ padding:"5px 8px", color:h.turbidity<=4?UPC.green:"#e53935" }}>{h.turbidity}</td>
-                          <td style={{ padding:"5px 8px", color:h.temperature>=10&&h.temperature<=25?UPC.green:"#e53935" }}>{h.temperature}</td>
+                          <td style={{ padding:"5px 8px", color:h.ph>=6.5&&h.ph<=8.5?UPC.green:"#e53935", fontWeight:600 }}>{h.ph}</td>
+                          <td style={{ padding:"5px 8px", color:h.turbidity<=4?UPC.green:"#e53935", fontWeight:600 }}>{h.turbidity}</td>
+                          <td style={{ padding:"5px 8px", color:h.temperature>=10&&h.temperature<=25?UPC.green:"#e53935", fontWeight:600 }}>{h.temperature}</td>
                           <td style={{ padding:"5px 8px" }}>
-                            <span style={{ color:h.classification.color, fontWeight:600 }}>
+                            <span style={{ color:h.classification.color, fontWeight:700, fontSize:10,
+                              background:h.classification.color+"15", padding:"2px 6px", borderRadius:4 }}>
                               {["✓ APTA","⚠ CONTAM.","✗ PELIGRO"][h.classification.label]}
                             </span>
                           </td>
@@ -811,7 +885,7 @@ export default function WaterMonitor() {
         <div style={{ maxWidth:1300, margin:"0 auto", padding:"20px 28px" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
             <div>
-              <div style={{ fontSize:16, fontWeight:800, color:UPC.greenDark }}>🗄️ Historial  </div>
+              <div style={{ fontSize:16, fontWeight:800, color:UPC.greenDark }}>🗄️ Historial de Análisis — Firebase</div>
               <div style={{ fontSize:11, color:UPC.textLight, marginTop:4 }}>
                 Lecturas guardadas en Firestore · últimas 200 registros
               </div>

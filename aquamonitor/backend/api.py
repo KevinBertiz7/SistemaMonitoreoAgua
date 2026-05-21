@@ -207,40 +207,85 @@ def estado_dataset():
 @app.post("/reentrenar")
 def reentrenar_modelo():
     """
-    Lógica original:
-    - Obtiene datos de Firebase (dataset_entrenamiento + historial confianza >= 90%)
-    - Reentrena el Random Forest
-    - Evalúa sobre test set
-    - Guarda métricas en Firebase (colección entrenamientos_modelo)
+    Reentrenamiento CORRECTO — sin sesgo circular:
+    
+    Fuentes de datos (en orden de prioridad):
+      1. Dataset CSV cargado manualmente (etiquetas reales o auto-OMS)   ← más confiable
+      2. Colección dataset_entrenamiento de Firebase (datos importados)  ← confiable
+      3. Datos sintéticos OMS como base (siempre incluidos para estabilidad)
+    
+    NO usa historial_analisis: esas etiquetas son predicciones del propio
+    modelo, usarlas como verdad genera retroalimentación de errores y
+    hace que la exactitud baje con cada reentrenamiento.
     """
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import (
         accuracy_score, precision_score,
         recall_score, f1_score, confusion_matrix
     )
+    from analysis_layer import _generate_training_data
 
     try:
-        datos = obtener_datos_entrenamiento()
+        X_parts, y_parts = [], []
+        fuentes_usadas   = []
 
-        if len(datos) < 30:
-            return {
-                "ok": False,
-                "error": f"No hay suficientes datos para reentrenar. "
-                         f"Se necesitan al menos 30, hay {len(datos)}."
-            }
+        # ── 1. Dataset CSV cargado en sesión (la fuente más confiable) ──
+        if _dataset_state["loaded"] and _dataset_state["X"]:
+            X_csv = np.array(_dataset_state["X"], dtype=float)
+            y_csv = np.array(_dataset_state["y"], dtype=int)
+            X_parts.append(X_csv)
+            y_parts.append(y_csv)
+            fuentes_usadas.append(f"CSV ({len(y_csv)} muestras)")
 
-        data = np.array(datos)
-        X    = data[:, :3].astype(float)
-        y    = data[:, 3].astype(int)
+        # ── 2. Colección dataset_entrenamiento de Firebase ──
+        #    Solo datos importados explícitamente, NO el historial de predicciones
+        try:
+            from firebase_admin import firestore
+            from firebase_service import db
+            docs = db.collection("dataset_entrenamiento").stream()
+            filas_fb = []
+            for doc in docs:
+                d = doc.to_dict()
+                try:
+                    ph   = float(d["ph"])
+                    turb = float(d["turbidity"])
+                    temp = float(d["temperature"])
+                    cls  = int(d["clase"])
+                    if 0 <= ph <= 14 and 0 <= turb <= 500 and -10 <= temp <= 100 and cls in (0,1,2):
+                        filas_fb.append([ph, turb, temp, cls])
+                except: pass
+            if filas_fb:
+                arr = np.array(filas_fb)
+                X_parts.append(arr[:, :3])
+                y_parts.append(arr[:, 3].astype(int))
+                fuentes_usadas.append(f"Firebase dataset ({len(filas_fb)} muestras)")
+        except Exception as e_fb:
+            fuentes_usadas.append(f"Firebase no disponible: {e_fb}")
 
-        # Stratify solo si hay al menos 2 clases
-        stratify = y if len(np.unique(y)) > 1 else None
+        # ── 3. Base sintética OMS (siempre incluida para estabilidad) ──
+        #    Garantiza que las 3 clases estén bien representadas y
+        #    el modelo no degrade si hay pocos datos reales
+        X_syn, y_syn = _generate_training_data(n=2000, seed=42)
+        X_parts.append(X_syn)
+        y_parts.append(y_syn)
+        fuentes_usadas.append("Sintéticos OMS (2000 muestras base)")
+
+        # ── Combinar todo ──
+        X = np.vstack(X_parts)
+        y = np.concatenate(y_parts)
+
+        if len(X) < 30:
+            return {"ok": False,
+                    "error": f"Solo {len(X)} muestras totales. Mínimo: 30."}
+
+        # ── Split estratificado ──
+        stratify = y if len(np.unique(y)) >= 2 else None
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, random_state=42,
             shuffle=True, stratify=stratify
         )
 
-        # Entrenar Random Forest con datos reales
+        # ── Entrenar ──
         rf = RandomForestClassifier(
             n_estimators=200,
             max_depth=10,
@@ -250,43 +295,42 @@ def reentrenar_modelo():
         )
         rf.fit(X_train, y_train)
         joblib.dump(rf, RF_PATH)
-
-        # Recargar el modelo activo en memoria
         analyzer._model.reload_model()
 
-        # Evaluar
+        # ── Evaluar SOLO sobre test set (datos que NO vio el modelo) ──
         y_pred = rf.predict(X_test)
-        matriz = confusion_matrix(y_test, y_pred).tolist()
-
-        # Asegurar 3 filas en la matriz
-        while len(matriz) < 3:
-            matriz.append([0, 0, 0])
+        acc    = float(accuracy_score(y_test, y_pred))
+        prec   = float(precision_score(y_test, y_pred, average="macro", zero_division=0))
+        rec    = float(recall_score(y_test, y_pred, average="macro", zero_division=0))
+        f1     = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
+        matriz = confusion_matrix(y_test, y_pred, labels=[0,1,2]).tolist()
 
         metricas = {
-            "total_muestras": int(len(datos)),
-            "accuracy":  round(float(accuracy_score(y_test, y_pred)), 4),
-            "precision": round(float(precision_score(y_test, y_pred, average="macro", zero_division=0)), 4),
-            "recall":    round(float(recall_score(y_test, y_pred, average="macro", zero_division=0)), 4),
-            "f1":        round(float(f1_score(y_test, y_pred, average="macro", zero_division=0)), 4),
-            "matriz_confusion": {
-                "fila_0": matriz[0],
-                "fila_1": matriz[1],
-                "fila_2": matriz[2],
-            },
-            "modelo_evaluado": "random_forest"
+            "total_muestras":     int(len(X)),
+            "muestras_train":     int(len(X_train)),
+            "muestras_test":      int(len(X_test)),
+            "fuentes":            fuentes_usadas,
+            "accuracy":           round(acc,  4),
+            "precision":          round(prec, 4),
+            "recall":             round(rec,  4),
+            "f1":                 round(f1,   4),
+            "matriz_confusion":   {"fila_0": matriz[0], "fila_1": matriz[1], "fila_2": matriz[2]},
+            "modelo_evaluado":    "random_forest",
+            "nota":               "Historial de predicciones excluido del entrenamiento para evitar sesgo circular"
         }
 
-        # Guardar métricas en Firebase
-        guardar_entrenamiento(metricas)
+        try: guardar_entrenamiento(metricas)
+        except: pass
 
         return {
             "ok":      True,
-            "mensaje": f"Random Forest reentrenado con {len(datos)} muestras de Firebase.",
+            "mensaje": f"Random Forest reentrenado con {len(X)} muestras ({', '.join(fuentes_usadas)}).",
             "metricas": metricas
         }
 
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        import traceback
+        return {"ok": False, "error": str(e), "detalle": traceback.format_exc()}
 
 # ─── REPORTE HTML ─────────────────────────────────────────────
 @app.get("/reporte", response_class=HTMLResponse)
