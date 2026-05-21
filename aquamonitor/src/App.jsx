@@ -343,6 +343,9 @@ export default function WaterMonitor() {
   const [fbLoading, setFbLoading]         = useState(false);
   const [fbError, setFbError]             = useState(null);
   const [fbSelected, setFbSelected]       = useState(null);
+  // Reentrenamiento
+  const [reentrenarLoading, setReentrenarLoading] = useState(false);
+  const [reentrenarResult, setReentrenarResult]   = useState(null);
 
   const autoRef     = useRef(null);
   const fileInputRef = useRef(null);
@@ -432,6 +435,18 @@ export default function WaterMonitor() {
       else         { setApiError("Error en dataset: " + data.error); }
     } catch { setApiError("No se pudo conectar al servidor."); }
     finally { setDatasetLoading(false); e.target.value=""; }
+  }
+
+  async function handleReentrenar() {
+    setReentrenarLoading(true); setReentrenarResult(null);
+    try {
+      const res  = await fetch(`${API}/reentrenar`, { method: "POST" });
+      const data = await res.json();
+      setReentrenarResult(data);
+      if (!data.ok) setApiError("Error reentrenando: " + data.error);
+      else setApiError(null);
+    } catch { setApiError("No se pudo conectar al servidor."); }
+    finally { setReentrenarLoading(false); }
   }
 
   const phHistory   = history.map(h=>h.ph);
@@ -667,6 +682,71 @@ export default function WaterMonitor() {
                   display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
                 🗑 LIMPIAR DATASET ({datasetInfo.muestras} filas)
               </button>
+            )}
+
+            {/* ── BOTÓN REENTRENAR ── */}
+            <button onClick={handleReentrenar} disabled={reentrenarLoading}
+              style={{ background: reentrenarLoading
+                  ? "#e8f5e8"
+                  : `linear-gradient(135deg,#1565C0,#1976D2)`,
+                border:`1px solid #1565C030`, color: reentrenarLoading ? UPC.green : "white",
+                borderRadius:8, padding:"13px", fontFamily:"'Segoe UI',sans-serif",
+                fontWeight:700, fontSize:12, cursor: reentrenarLoading ? "default" : "pointer",
+                letterSpacing:".06em", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              {reentrenarLoading
+                ? <><span style={{ display:"inline-block",width:12,height:12,border:`2px solid ${UPC.border}`,borderTopColor:UPC.green,borderRadius:"50%",animation:"spin .7s linear infinite" }}/> REENTRENANDO...</>
+                : "🧠 REENTRENAR MODELO"
+              }
+            </button>
+
+            {/* Resultado del reentrenamiento */}
+            {reentrenarResult && (
+              <div style={{ background: reentrenarResult.ok ? "#e8f5e8" : "#ffebee",
+                border:`1px solid ${reentrenarResult.ok ? UPC.border : "#ffcdd2"}`,
+                borderRadius:8, padding:"14px 16px" }}>
+                <div style={{ fontSize:11, fontWeight:700,
+                  color: reentrenarResult.ok ? UPC.greenDark : "#c62828", marginBottom:8 }}>
+                  {reentrenarResult.ok ? "✅ Reentrenamiento exitoso" : "❌ Error en reentrenamiento"}
+                </div>
+                {reentrenarResult.ok && reentrenarResult.metricas && (
+                  <>
+                    <div style={{ fontSize:10, color:UPC.textLight, marginBottom:6 }}>
+                      {reentrenarResult.mensaje}
+                    </div>
+                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                      {[
+                        { l:"Exactitud",  v: (reentrenarResult.metricas.accuracy  * 100).toFixed(2) + "%" },
+                        { l:"Precisión",  v: (reentrenarResult.metricas.precision * 100).toFixed(2) + "%" },
+                        { l:"Recall",     v: (reentrenarResult.metricas.recall    * 100).toFixed(2) + "%" },
+                        { l:"F1-Score",   v: (reentrenarResult.metricas.f1        * 100).toFixed(2) + "%" },
+                        { l:"Muestras",   v: reentrenarResult.metricas.total_muestras },
+                        { l:"Test set",   v: reentrenarResult.metricas.muestras_test },
+                      ].map(m => (
+                        <div key={m.l} style={{ background:"white", borderRadius:6,
+                          padding:"6px 10px", border:`1px solid ${UPC.border}` }}>
+                          <div style={{ fontSize:9, color:UPC.textLight, letterSpacing:".1em" }}>{m.l}</div>
+                          <div style={{ fontSize:13, fontWeight:800, color:UPC.greenDark, fontFamily:"monospace" }}>{m.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {reentrenarResult.metricas.fuentes && (
+                      <div style={{ fontSize:9, color:UPC.textLight, marginTop:8 }}>
+                        Fuentes: {reentrenarResult.metricas.fuentes.join(" · ")}
+                      </div>
+                    )}
+                  </>
+                )}
+                {!reentrenarResult.ok && (
+                  <div style={{ fontSize:11, color:"#c62828", fontFamily:"monospace" }}>
+                    {reentrenarResult.error}
+                  </div>
+                )}
+                <button onClick={()=>setReentrenarResult(null)}
+                  style={{ marginTop:8, background:"none", border:"none",
+                    fontSize:10, color:UPC.textLight, cursor:"pointer", padding:0 }}>
+                  Cerrar ✕
+                </button>
+              </div>
             )}
           </div>
 
