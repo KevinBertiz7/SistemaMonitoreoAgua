@@ -426,7 +426,7 @@ export default function WaterMonitor() {
         <button className={`tab-btn ${activeTab==="monitor"?"active":""}`}
           onClick={()=>setActiveTab("monitor")}>📡 Monitor</button>
         <button className={`tab-btn ${activeTab==="historial"?"active":""}`}
-          onClick={()=>setActiveTab("historial")}>🗄️ Historial Firebase</button>
+          onClick={()=>setActiveTab("historial")}>🗄️ Historial </button>
       </div>
 
       {/* ── API ERROR ── */}
@@ -811,7 +811,7 @@ export default function WaterMonitor() {
         <div style={{ maxWidth:1300, margin:"0 auto", padding:"20px 28px" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
             <div>
-              <div style={{ fontSize:16, fontWeight:800, color:UPC.greenDark }}>🗄️ Historial de Análisis — Firebase</div>
+              <div style={{ fontSize:16, fontWeight:800, color:UPC.greenDark }}>🗄️ Historial  </div>
               <div style={{ fontSize:11, color:UPC.textLight, marginTop:4 }}>
                 Lecturas guardadas en Firestore · últimas 200 registros
               </div>
