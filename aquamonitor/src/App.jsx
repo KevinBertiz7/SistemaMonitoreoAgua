@@ -356,7 +356,7 @@ export default function WaterMonitor() {
     return () => clearInterval(autoRef.current);
   }, [autoMode]);
 
-  // Cargar historial Firebase cuando se cambia a esa pestaña
+  // Cargar historial  cuando se cambia a esa pestaña
   useEffect(() => {
     if (activeTab === "historial" && fbHistory.length === 0) cargarHistorialFirebase();
   }, [activeTab]);
@@ -540,7 +540,7 @@ export default function WaterMonitor() {
         <button className={`tab-btn ${activeTab==="monitor"?"active":""}`}
           onClick={()=>setActiveTab("monitor")}>📡 Monitor</button>
         <button className={`tab-btn ${activeTab==="historial"?"active":""}`}
-          onClick={()=>setActiveTab("historial")}>🗄️ Historial Firebase</button>
+          onClick={()=>setActiveTab("historial")}>🗄️ Historial</button>
       </div>
 
       {/* ── API ERROR ── */}
@@ -658,7 +658,7 @@ export default function WaterMonitor() {
             </button>
             <button onClick={()=>window.open(`${API}/reporte`,"_blank")}
               style={{ background:`linear-gradient(135deg,${UPC.greenDark},#1a5c1a)`,
-                border:`1px solid ${UPC.yellow}50`, color:UPC.yellow, borderRadius:8, padding:"13px",
+                border:`1px solid ${UPC.yellow}50`, color:UPC.white, borderRadius:8, padding:"13px",
                 fontFamily:"'Segoe UI',sans-serif", fontWeight:700, fontSize:12, cursor:"pointer",
                 letterSpacing:".06em", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
               📋 GENERAR REPORTE DEL MODELO
@@ -958,14 +958,12 @@ export default function WaterMonitor() {
         </div>
       )}
 
-      {/* ════════════════════════════════════
-              TAB: HISTORIAL FIREBASE
-          ════════════════════════════════════ */}
+      {/* TAB: HISTORIAL */}
       {activeTab === "historial" && (
         <div style={{ maxWidth:1300, margin:"0 auto", padding:"20px 28px" }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
             <div>
-              <div style={{ fontSize:16, fontWeight:800, color:UPC.greenDark }}>🗄️ Historial de Análisis — Firebase</div>
+              <div style={{ fontSize:16, fontWeight:800, color:UPC.greenDark }}>🗄️ Historial de Análisis </div>
               <div style={{ fontSize:11, color:UPC.textLight, marginTop:4 }}>
                 Lecturas guardadas en Firestore · últimas 200 registros
               </div>
@@ -974,7 +972,7 @@ export default function WaterMonitor() {
               style={{ ...btnPrimary, padding:"10px 20px" }}>
               {fbLoading
                 ? <><span style={{ display:"inline-block",width:12,height:12,border:"2px solid rgba(255,255,255,.3)",borderTopColor:"white",borderRadius:"50%",animation:"spin .7s linear infinite" }}/> Cargando...</>
-                : "🔄 Actualizar"
+                : " Actualizar"
               }
             </button>
           </div>
